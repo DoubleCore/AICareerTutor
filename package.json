@@ -1,0 +1,13 @@
+{
+  "name": "ai-career-tutor",
+  "private": true,
+  "workspaces": [
+    "apps/mobile"
+  ],
+  "scripts": {
+    "mobile": "npm --workspace apps/mobile run start",
+    "mobile:web": "npm --workspace apps/mobile run web",
+    "api": "python -m uvicorn app.main:app --reload --app-dir apps/api",
+    "typecheck": "npm --workspace apps/mobile run typecheck"
+  }
+}

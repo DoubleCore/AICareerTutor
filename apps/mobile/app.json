@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "AI职场导师",
+    "slug": "ai-career-tutor",
+    "scheme": "aicareertutor",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
