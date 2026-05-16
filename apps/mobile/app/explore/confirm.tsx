@@ -1,35 +1,48 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Image, ImageSourcePropType, LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { AppButton, BottomSheet, ConfirmDialog, Screen, TextField } from "@/components/ui/primitives";
+import { Animated, Easing, Image, ImageSourcePropType, LayoutChangeEvent, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { AppButton, ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAppStore } from "@/store/useAppStore";
 import { ExploreProfile } from "@/types/domain";
 
-type IconName = React.ComponentProps<typeof MaterialIcons>["name"];
-
 const starIcon = require("../../img/4-1.png") as ImageSourcePropType;
 const profileFileIcon = require("../../img/4-2.png") as ImageSourcePropType;
+const basicBackgroundIcon = require("../../img/6-1.png") as ImageSourcePropType;
+const interestPreferenceIcon = require("../../img/6-2.png") as ImageSourcePropType;
+const goalConstraintIcon = require("../../img/6-3.png") as ImageSourcePropType;
+const experienceAbilityIcon = require("../../img/6-4.png") as ImageSourcePropType;
+const aiSupplementIcon = require("../../img/6-6.png") as ImageSourcePropType;
 const organizingProgressGradientStyle =
   Platform.OS === "web"
     ? ({
         backgroundImage: "linear-gradient(90deg, #EEF3FF 0%, #CFE0FF 18%, #71A7FF 45%, #3B82F6 72%, #A884FF 100%)"
       } as never)
     : null;
+const introCardGradientStyle =
+  Platform.OS === "web"
+    ? ({
+        backgroundImage: "linear-gradient(135deg, #F8FBFF 0%, #EEF4FF 45%, #FCFDFF 100%)"
+      } as never)
+    : null;
+const aiCardGradientStyle =
+  Platform.OS === "web"
+    ? ({
+        backgroundImage: "linear-gradient(135deg, #FCFAFF 0%, #F5EEFF 55%, #FFFDFE 100%)"
+      } as never)
+    : null;
 
 type EditableSection = {
   title: string;
-  icon: IconName;
-  color: string;
+  icon: ImageSourcePropType;
   fields: { key: keyof ExploreProfile; label: string }[];
 };
 
 const sections: EditableSection[] = [
   {
     title: "基础背景",
-    icon: "person-outline",
-    color: colors.primary,
+    icon: basicBackgroundIcon,
     fields: [
       { key: "stage", label: "当前阶段" },
       { key: "education", label: "学历状态" },
@@ -38,8 +51,7 @@ const sections: EditableSection[] = [
   },
   {
     title: "兴趣与工作偏好",
-    icon: "favorite-border",
-    color: colors.accent,
+    icon: interestPreferenceIcon,
     fields: [
       { key: "interests", label: "兴趣偏好" },
       { key: "workPreferences", label: "工作偏好" }
@@ -47,8 +59,7 @@ const sections: EditableSection[] = [
   },
   {
     title: "探索目标与现实约束",
-    icon: "my-location",
-    color: "#2563EB",
+    icon: goalConstraintIcon,
     fields: [
       { key: "goal", label: "探索目标" },
       { key: "constraints", label: "现实约束" }
@@ -56,8 +67,7 @@ const sections: EditableSection[] = [
   },
   {
     title: "经历与能力补充",
-    icon: "business-center",
-    color: colors.success,
+    icon: experienceAbilityIcon,
     fields: [
       { key: "experiences", label: "经历类型" },
       { key: "workTypes", label: "做过的事情" },
@@ -73,15 +83,19 @@ const aiSummary = [
   "确认后，我会基于这份画像生成更具体的职业方向。"
 ];
 
+const titleIconGap = 6;
+const titleIconLeftOffset = -10;
+
 const toText = (value: string | string[]) => (Array.isArray(value) ? value.filter(Boolean).join("、") : value || "待补充");
 
 export default function Confirm() {
-  const { skipOrganizing } = useLocalSearchParams<{ skipOrganizing?: string }>();
-  const shouldSkipOrganizing = skipOrganizing === "1";
-  const [organizing, setOrganizing] = useState(!shouldSkipOrganizing);
+  const { fromFollowup, skipOrganizing } = useLocalSearchParams<{ fromFollowup?: string; skipOrganizing?: string }>();
+  const shouldShowOrganizing = fromFollowup === "1" && skipOrganizing !== "1";
+  const [organizing, setOrganizing] = useState(shouldShowOrganizing);
   const [showExit, setShowExit] = useState(false);
   const [editing, setEditing] = useState<EditableSection | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [focusedEditField, setFocusedEditField] = useState<string | null>(null);
   const [organizingTrackWidth, setOrganizingTrackWidth] = useState(0);
   const organizingProgress = useRef(new Animated.Value(0.03)).current;
   const { height } = useWindowDimensions();
@@ -95,9 +109,9 @@ export default function Confirm() {
     : 8;
 
   useEffect(() => {
-    setOrganizing(!shouldSkipOrganizing);
+    setOrganizing(shouldShowOrganizing);
     organizingProgress.setValue(0.03);
-  }, [organizingProgress, shouldSkipOrganizing]);
+  }, [organizingProgress, shouldShowOrganizing]);
 
   useEffect(() => {
     if (!organizing) return;
@@ -127,6 +141,11 @@ export default function Confirm() {
     setEditing(section);
   };
 
+  const closeEdit = () => {
+    setFocusedEditField(null);
+    setEditing(null);
+  };
+
   const saveEdit = () => {
     if (!editing) return;
 
@@ -142,7 +161,7 @@ export default function Confirm() {
 
       setProfileField(field.key, nextValue);
     });
-    setEditing(null);
+    closeEdit();
   };
 
   if (organizing) {
@@ -211,7 +230,7 @@ export default function Confirm() {
           <Text style={styles.pageSubtitle}>请确认以下信息是否准确。确认后，我会据此生成职业方向建议。</Text>
         </View>
 
-        <View style={styles.introCard}>
+        <View style={[styles.introCard, introCardGradientStyle]}>
           <View style={styles.introIcon}>
             <Image source={profileFileIcon} style={styles.introImage} resizeMode="contain" />
           </View>
@@ -225,10 +244,10 @@ export default function Confirm() {
           <ConfirmSectionCard key={section.title} section={section} profile={profile} onEdit={() => openEdit(section)} />
         ))}
 
-        <View style={styles.aiCard}>
+        <View style={[styles.aiCard, aiCardGradientStyle]}>
           <View style={styles.aiHeader}>
             <View style={styles.aiIcon}>
-              <Image source={starIcon} style={styles.aiImage} resizeMode="contain" />
+              <Image source={aiSupplementIcon} style={styles.aiImage} resizeMode="contain" />
             </View>
             <View style={styles.aiTitleWrap}>
               <Text style={styles.cardTitle}>AI 补充理解</Text>
@@ -248,26 +267,52 @@ export default function Confirm() {
         <AppButton title="确认并生成方向建议" onPress={() => router.push("/explore/result")} style={styles.confirmActionButton} />
       </Screen>
 
-      <BottomSheet visible={!!editing} title={editing ? `编辑${editing.title}` : "编辑"} onClose={() => setEditing(null)}>
-        {editing?.fields.map((field) => (
-          <TextField
-            key={field.key}
-            label={field.label}
-            value={draft[String(field.key)] ?? ""}
-            onChangeText={(value) => setDraft((prev) => ({ ...prev, [String(field.key)]: value }))}
-            multiline
-          />
-        ))}
-        <Text style={styles.editHint}>可以直接修改、补充或删除内容；多个关键词建议用顿号或逗号分隔。</Text>
-        <View style={styles.editActions}>
-          <View style={styles.editAction}>
-            <AppButton title="取消" variant="secondary" onPress={() => setEditing(null)} />
-          </View>
-          <View style={styles.editAction}>
-            <AppButton title="保存修改" onPress={saveEdit} />
+      <Modal visible={!!editing} transparent animationType="slide" onRequestClose={closeEdit}>
+        <View style={[styles.editSheetFrame, Platform.OS === "web" ? styles.editSheetFrameWeb : null]}>
+          <Pressable style={styles.editSheetOverlay} onPress={closeEdit} />
+          <View style={styles.editSheet}>
+            <View style={styles.editSheetHandle} />
+            <View style={styles.editSheetHeader}>
+              <Text style={styles.editSheetTitle}>{editing ? `编辑${editing.title}` : "编辑"}</Text>
+              <Pressable onPress={closeEdit} style={styles.editSheetCloseButton}>
+                <Text style={styles.editSheetCloseText}>关闭</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.editSheetScroll} contentContainerStyle={styles.editSheetContent} keyboardShouldPersistTaps="handled">
+              {editing?.fields.map((field) => {
+                const key = String(field.key);
+                const focused = focusedEditField === key;
+                return (
+                  <View key={field.key} style={styles.editField}>
+                    <Text style={styles.editFieldLabel}>{field.label}</Text>
+                    <TextInput
+                      value={draft[key] ?? ""}
+                      onChangeText={(value) => setDraft((prev) => ({ ...prev, [key]: value }))}
+                      onFocus={() => setFocusedEditField(key)}
+                      onBlur={() => setFocusedEditField(null)}
+                      multiline
+                      placeholderTextColor={colors.gray}
+                      cursorColor={colors.primary}
+                      selectionColor={colors.primary}
+                      textAlignVertical="top"
+                      style={[styles.editInput, focused ? styles.editInputFocused : null, { outlineStyle: "none" } as never]}
+                    />
+                  </View>
+                );
+              })}
+              <Text style={styles.editHint}>可以直接修改、补充或删除内容；多个关键词建议用顿号或逗号分隔。</Text>
+              <View style={styles.editActions}>
+                <View style={styles.editAction}>
+                  <AppButton title="取消" variant="secondary" onPress={closeEdit} />
+                </View>
+                <View style={styles.editAction}>
+                  <AppButton title="保存修改" onPress={saveEdit} />
+                </View>
+              </View>
+            </ScrollView>
           </View>
         </View>
-      </BottomSheet>
+      </Modal>
 
       <ConfirmDialog
         visible={showExit}
@@ -286,12 +331,12 @@ function ConfirmSectionCard({ section, profile, onEdit }: { section: EditableSec
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
-        <View style={[styles.sectionIcon, { backgroundColor: `${section.color}14` }]}>
-          <MaterialIcons name={section.icon} size={24} color={section.color} />
+        <View style={styles.sectionIcon}>
+          <Image source={section.icon} style={styles.sectionIconImage} resizeMode="contain" />
         </View>
         <Text style={styles.cardTitle}>{section.title}</Text>
         <Pressable onPress={onEdit} style={styles.editButton}>
-          <MaterialIcons name="edit" size={17} color={colors.muted} />
+          <MaterialIcons name="edit" size={17} color="#5F8DFF" />
           <Text style={styles.editButtonText}>编辑</Text>
         </Pressable>
       </View>
@@ -328,7 +373,7 @@ const styles = StyleSheet.create({
     width: "94%",
     borderRadius: 18,
     padding: spacing.lg,
-    backgroundColor: "#fff",
+    backgroundColor: "#fbfbfb",
     borderWidth: 1,
     borderColor: "#E8EDF7",
     shadowColor: "#1F2937",
@@ -367,13 +412,13 @@ const styles = StyleSheet.create({
   organizingProgressFill: { height: "100%", minWidth: 8, borderRadius: radius.pill, overflow: "hidden", backgroundColor: "#3B82F6" },
 
   hero: { marginHorizontal: -spacing.lg, marginTop: -spacing.lg, paddingTop: spacing.xl, paddingHorizontal: spacing.xl, paddingBottom: spacing.lg, backgroundColor: "#F8FAFF" },
-  pageTitle: { color: "#0B1D3A", fontSize: 29, lineHeight: 36, fontWeight: "900", letterSpacing: 0 },
+  pageTitle: { color: "#0B1D3A", fontSize: 26, lineHeight: 36, fontWeight: "800", letterSpacing: 0 },
   pageSubtitle: { marginTop: spacing.sm, color: colors.muted, fontSize: 15, lineHeight: 22, fontWeight: "400" },
   introCard: {
     marginTop: -8,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    backgroundColor: "#fff",
+    backgroundColor: "#F8FBFF",
     borderWidth: 1,
     borderColor: "#E4EAF3",
     flexDirection: "row",
@@ -384,33 +429,49 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2
   },
-  introIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#EEF5FF" },
+  introIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8FBFF",
+    borderWidth: 1,
+    borderColor: "#DCEAFF",
+    shadowColor: "#3B82F6",
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2
+  },
   introImage: { width: 26, height: 26 },
   introCopy: { flex: 1, gap: 6 },
-  introTitle: { color: "#0B1D3A", fontSize: 17, fontWeight: "900", lineHeight: 23 },
+  introTitle: { color: "#262d3a", fontSize: 17, fontWeight: "700", lineHeight: 23 },
   introText: { color: "#334155", fontSize: 13, lineHeight: 21, fontWeight: "400" },
   sectionCard: {
     borderRadius: radius.lg,
-    padding: spacing.lg,
-    backgroundColor: "#fff",
+    paddingHorizontal: spacing.xl,
+    paddingVertical:10,
+    backgroundColor: "#FCFAFF",
     borderWidth: 1,
     borderColor: "#E5EAF2",
-    gap: spacing.md,
+    gap: 2,
     shadowColor: "#1F2937",
     shadowOpacity: 0.06,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 2
   },
-  sectionHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  sectionIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: titleIconGap },
+  sectionIcon: { width: 50, height: 50, marginLeft: titleIconLeftOffset, alignSelf: "center", alignItems: "center", justifyContent: "center" },
+  sectionIconImage: { width: 50, height: 50 },
   cardTitle: { flex: 1, color: "#0B1D3A", fontSize: 18, lineHeight: 23, fontWeight: "400" },
-  editButton: { minHeight: 36, borderRadius: radius.sm, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: "#DDE3EE", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#fff" },
-  editButtonText: { color: colors.muted, fontSize: 13, fontWeight: "400" },
-  fieldList: { gap: spacing.md, marginLeft: 52 },
-  infoRow: { gap: spacing.xs, alignItems: "flex-start" },
-  infoLabel: { color: colors.muted, fontSize: 14, lineHeight: 22, fontWeight: "400" },
-  infoValue: { width: "100%", color: "#0B1D3A", fontSize: 14, lineHeight: 22, fontWeight: "400" },
+  editButton: { height: 28, alignSelf: "center", borderRadius: radius.sm, paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: "#5F8DFF", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: "#FFFFFF" },
+  editButtonText: { color: "#5F8DFF", fontSize: 13, fontWeight: "400" },
+  fieldList: { alignSelf: "stretch", marginLeft: 0, paddingLeft: 0, gap: 8, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: "#EEF2F7" },
+  infoRow: { alignSelf: "stretch", gap: 3, alignItems: "stretch", paddingVertical: 2 },
+  infoLabel: { color: colors.muted, fontSize: 14, lineHeight: 20, fontWeight: "400", textAlign: "left" },
+  infoValue: { alignSelf: "stretch", minWidth: 0, color: "#0B1D3A", fontSize: 14, lineHeight: 23, fontWeight: "400", textAlign: "left" },
   aiCard: {
     borderRadius: radius.lg,
     padding: spacing.lg,
@@ -425,16 +486,82 @@ const styles = StyleSheet.create({
     elevation: 2
   },
   aiHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  aiIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#F3F0FF" },
-  aiImage: { width: 24, height: 24 },
+  aiIcon: {
+    width: 44,
+    height: 44,
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "#F4EDFF",
+    borderWidth: 1,
+    borderColor: "#E4D7FF",
+    shadowColor: "#6D28D9",
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2
+  },
+  aiImage: { width: 30, height: 30 },
   aiTitleWrap: { flex: 1 },
   aiBased: { color: colors.muted, fontSize: 12, fontWeight: "400" },
-  bulletList: { gap: spacing.sm, marginLeft: 54 },
-  bulletRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-  bullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#0B1D3A", marginTop: 8 },
-  bulletText: { flex: 1, color: "#24324A", fontSize: 13, lineHeight: 20, fontWeight: "400" },
+  bulletList: { alignSelf: "stretch", marginLeft: 0, paddingLeft: 0, gap: spacing.sm, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: "#F0ECFF" },
+  bulletRow: { alignSelf: "stretch", flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+  bullet: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#7658CC", marginTop: 8 },
+  bulletText: { flex: 1, minWidth: 0, color: "#24324A", fontSize: 13, lineHeight: 20, fontWeight: "400", textAlign: "left" },
   confirmActionButton: { marginTop: spacing.sm, marginBottom: spacing.lg, borderRadius: 14 },
-  editHint: { color: colors.muted, fontSize: 13, lineHeight: 20 },
-  editActions: { flexDirection: "row", gap: spacing.md },
+  editSheetFrame: { flex: 1, width: "100%", position: "relative" },
+  editSheetFrameWeb: { maxWidth: 430, alignSelf: "center" },
+  editSheetOverlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(17,24,39,0.28)" },
+  editSheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: "82%",
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    shadowColor: "#111827",
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -10 },
+    elevation: 8
+  },
+  editSheetHandle: { alignSelf: "center", width: 44, height: 5, borderRadius: radius.pill, backgroundColor: "#D1D8E2" },
+  editSheetHeader: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.sm },
+  editSheetTitle: { flex: 1, color: "#0B1D3A", fontSize: 20, lineHeight: 28, fontWeight: "500" },
+  editSheetCloseButton: { minHeight: 34, justifyContent: "center", paddingLeft: spacing.md },
+  editSheetCloseText: { color: "#3B82F6", fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  editSheetScroll: { marginHorizontal: -spacing.xs },
+  editSheetContent: { gap: spacing.md, paddingHorizontal: spacing.xs, paddingBottom: spacing.sm },
+  editField: { gap: spacing.sm },
+  editFieldLabel: { color: colors.muted, fontSize: 15, lineHeight: 21, fontWeight: "500" },
+  editInput: {
+    minHeight: 88,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#DDE5F0",
+    backgroundColor: "#FAFCFF",
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    color: "#0B1D3A",
+    fontSize: 16,
+    lineHeight: 24
+  },
+  editInputFocused: {
+    borderColor: "#5F8DFF",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#5F8DFF",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }
+  },
+  editHint: { color: colors.muted, fontSize: 13, lineHeight: 21, paddingTop: spacing.xs },
+  editActions: { flexDirection: "row", gap: spacing.md, paddingTop: spacing.xs },
   editAction: { flex: 1 }
 });
