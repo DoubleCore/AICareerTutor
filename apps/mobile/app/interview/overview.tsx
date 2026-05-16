@@ -41,9 +41,10 @@ function PassRing({ value }: { value: number }) {
 
 function TaskStatusButton({ status, onPress }: { status: TaskStatus; onPress: () => void }) {
   const style = status === "已完成" ? styles.statusDone : status === "进行中" ? styles.statusDoing : styles.statusTodo;
+  const textStyle = status === "已完成" ? styles.statusDoneText : status === "进行中" ? styles.statusDoingText : styles.statusTodoText;
   return (
     <Pressable onPress={onPress} style={[styles.statusButton, style]}>
-      <Text style={[styles.statusText, status !== "未开始" ? styles.statusTextActive : null]}>{status}</Text>
+      <Text style={[styles.statusText, textStyle]}>{status}</Text>
     </Pressable>
   );
 }
@@ -395,25 +396,34 @@ const styles = StyleSheet.create({
     minHeight: 30,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center"
   },
   statusTodo: {
-    backgroundColor: colors.primarySoft
+    backgroundColor: "#F7F9FC",
+    borderColor: "#E3E8F1"
   },
   statusDoing: {
-    backgroundColor: "#FEF3C7"
+    backgroundColor: "#EDF4FF",
+    borderColor: "#A9C8FF"
   },
   statusDone: {
-    backgroundColor: "#DCFCE7"
+    backgroundColor: "#ECFBF1",
+    borderColor: "#A8E0BC"
   },
   statusText: {
-    color: colors.primary,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "700"
   },
-  statusTextActive: {
-    color: colors.text
+  statusTodoText: {
+    color: "#8A96A8"
+  },
+  statusDoingText: {
+    color: "#2F6BFF"
+  },
+  statusDoneText: {
+    color: "#22A45A"
   },
   footerActions: {
     flexDirection: "row",

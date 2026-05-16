@@ -101,9 +101,10 @@ function TrainingTaskRow({ task, icon, onPress }: { task: TrainingTask; icon: Ic
 
 function TaskStatusButton({ status, onPress }: { status: TaskStatus; onPress: () => void }) {
   const statusStyle = status === "已完成" ? styles.statusDone : status === "进行中" ? styles.statusDoing : styles.statusTodo;
+  const statusTextStyle = status === "已完成" ? styles.statusDoneText : status === "进行中" ? styles.statusDoingText : styles.statusTodoText;
   return (
     <Pressable onPress={onPress} style={[styles.statusButton, statusStyle]}>
-      <Text style={[styles.statusButtonText, status !== "未开始" ? styles.statusButtonTextActive : null]}>{status}</Text>
+      <Text style={[styles.statusButtonText, statusTextStyle]}>{status}</Text>
     </Pressable>
   );
 }
@@ -223,25 +224,34 @@ const styles = StyleSheet.create({
     minHeight: 28,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center"
   },
   statusTodo: {
-    backgroundColor: "#F3F4F6"
+    backgroundColor: "#F7F9FC",
+    borderColor: "#E3E8F1"
   },
   statusDoing: {
-    backgroundColor: colors.primarySoft
+    backgroundColor: "#EDF4FF",
+    borderColor: "#A9C8FF"
   },
   statusDone: {
-    backgroundColor: "#DCFCE7"
+    backgroundColor: "#ECFBF1",
+    borderColor: "#A8E0BC"
   },
   statusButtonText: {
-    color: colors.muted,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "700"
   },
-  statusButtonTextActive: {
-    color: colors.primary
+  statusTodoText: {
+    color: "#8A96A8"
+  },
+  statusDoingText: {
+    color: "#2F6BFF"
+  },
+  statusDoneText: {
+    color: "#22A45A"
   },
   progressCard: {
     borderRadius: radius.xl,

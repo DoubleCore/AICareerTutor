@@ -1,7 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AppButton, Card, Screen, SegmentedTabs, StatusTag, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAppStore, useSelectedDirection } from "@/store/useAppStore";
@@ -14,11 +14,18 @@ const nextStatus: Record<TaskStatus, TaskStatus> = {
 };
 
 const taskIcons = ["find-in-page", "menu-book", "article", "edit"] as const;
+const heroCardGradientStyle =
+  Platform.OS === "web"
+    ? ({
+        backgroundImage: "linear-gradient(135deg, #F8FBFF 0%, #EEF5FF 48%, #FFFFFF 100%)",
+        boxShadow: "0 10px 24px rgba(30, 107, 255, 0.14), 0 2px 8px rgba(15, 35, 70, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85)"
+      } as never)
+    : null;
 
-function SectionTitle({ icon, title }: { icon: keyof typeof MaterialIcons.glyphMap; title: string }) {
+function SectionTitle({ icon, title, color = colors.primary }: { icon: keyof typeof MaterialIcons.glyphMap; title: string; color?: string }) {
   return (
     <View style={styles.sectionTitleRow}>
-      <View style={styles.sectionIcon}>
+      <View style={[styles.sectionIcon, { backgroundColor: color }]}>
         <MaterialIcons name={icon} size={17} color="#fff" />
       </View>
       <Text style={uiStyles.sectionTitle}>{title}</Text>
@@ -28,9 +35,10 @@ function SectionTitle({ icon, title }: { icon: keyof typeof MaterialIcons.glyphM
 
 function TaskStatusButton({ status, onPress }: { status: TaskStatus; onPress: () => void }) {
   const statusStyle = status === "已完成" ? styles.statusDone : status === "进行中" ? styles.statusDoing : styles.statusTodo;
+  const statusTextStyle = status === "已完成" ? styles.statusDoneText : status === "进行中" ? styles.statusDoingText : styles.statusTodoText;
   return (
     <Pressable onPress={onPress} style={[styles.statusButton, statusStyle]}>
-      <Text style={[styles.statusButtonText, status !== "未开始" ? styles.statusButtonTextActive : null]}>{status}</Text>
+      <Text style={[styles.statusButtonText, statusTextStyle]}>{status}</Text>
     </Pressable>
   );
 }
@@ -60,7 +68,6 @@ export default function ExplorePath() {
       navTitle="路径"
       activeTab="路径"
       backTo="/explore/result"
-      title="路径"
       subtitle="从推荐方向开始，先做低成本探索。"
       footerAboveTab
       footer={
@@ -70,7 +77,7 @@ export default function ExplorePath() {
         </View>
       }
     >
-      <Card accent style={styles.heroCard}>
+      <Card accent style={[styles.heroCard, heroCardGradientStyle] as never}>
         <View style={styles.heroContent}>
           <View style={styles.heroText}>
             <Text style={styles.heroEyebrow}>当前探索方向</Text>
@@ -103,7 +110,7 @@ export default function ExplorePath() {
       </Card>
 
       <Card>
-        <SectionTitle icon="diamond" title="建议先补的能力" />
+        <SectionTitle icon="diamond" title="建议先补的能力" color="#8B5CF6" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.abilityRail}>
           {direction.abilitiesToBuild.map((ability, index) => (
             <View key={ability.title} style={[styles.abilityCard, index === direction.abilitiesToBuild.length - 1 ? styles.abilityCardLast : null]}>
@@ -146,7 +153,14 @@ export default function ExplorePath() {
 
 const styles = StyleSheet.create({
   heroCard: {
-    borderColor: "#93C5FD"
+    borderRadius: 20,
+    borderColor: "#8AB8FF",
+    backgroundColor: "#F8FBFF",
+    shadowColor: "#1E6BFF",
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3
   },
   heroContent: {
     flexDirection: "row",
@@ -160,7 +174,7 @@ const styles = StyleSheet.create({
   heroEyebrow: {
     color: colors.primary,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   heroTitleRow: {
     flexDirection: "row",
@@ -170,21 +184,22 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: colors.text,
-    fontSize: 30,
-    fontWeight: "900"
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "700"
   },
   heroIconWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#DBEAFE"
   },
   heroIcon: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
@@ -221,10 +236,10 @@ const styles = StyleSheet.create({
   },
   reasonText: {
     flex: 1,
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "600"
+    color: "#515764",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "500"
   },
   abilityRail: {
     paddingRight: spacing.xs
@@ -260,7 +275,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 17
   },
   abilityDescription: {
@@ -298,33 +313,42 @@ const styles = StyleSheet.create({
   taskTitle: {
     flex: 1,
     color: colors.text,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 18
   },
   statusButton: {
     minHeight: 28,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center"
   },
   statusTodo: {
-    backgroundColor: "#F3F4F6"
+    backgroundColor: "#F7F9FC",
+    borderColor: "#E3E8F1"
   },
   statusDoing: {
-    backgroundColor: colors.primarySoft
+    backgroundColor: "#EDF4FF",
+    borderColor: "#A9C8FF"
   },
   statusDone: {
-    backgroundColor: "#DCFCE7"
+    backgroundColor: "#ECFBF1",
+    borderColor: "#A8E0BC"
   },
   statusButtonText: {
-    color: colors.muted,
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "700"
   },
-  statusButtonTextActive: {
-    color: colors.primary
+  statusTodoText: {
+    color: "#8A96A8"
+  },
+  statusDoingText: {
+    color: "#2F6BFF"
+  },
+  statusDoneText: {
+    color: "#22A45A"
   },
   tipCard: {
     flexDirection: "row",
@@ -342,7 +366,7 @@ const styles = StyleSheet.create({
   },
   tipText: {
     flex: 1,
-    color: colors.text,
+    color: "#7B7E9F",
     fontSize: 14,
     lineHeight: 22
   },

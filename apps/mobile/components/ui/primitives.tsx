@@ -142,10 +142,24 @@ export function SmallActionButton({ title, onPress }: { title: string; onPress: 
 }
 
 export function StatusTag({ label }: { label: string }) {
+  const tagStyle =
+    label === "未开始"
+      ? { backgroundColor: "#F7F9FC", borderColor: "#E3E8F1", color: "#8A96A8" }
+      : label === "进行中"
+        ? { backgroundColor: "#EDF4FF", borderColor: "#A9C8FF", color: "#2F6BFF" }
+        : label === "已完成"
+          ? { backgroundColor: "#ECFBF1", borderColor: "#A8E0BC", color: "#22A45A" }
+          : label === "高"
+      ? { backgroundColor: "#EAF8F0", borderColor: "#8ED9A8", color: "#35B266" }
+      : label === "较高"
+        ? { backgroundColor: "#EEF4FF", borderColor: "#AFC7FF", color: "#4D82FF" }
+        : label === "可尝试"
+          ? { backgroundColor: "#FFF2E6", borderColor: "#FFC58F", color: "#FF9A38" }
+          : null;
   const color = label.includes("高") || label === "已完成" || label === "较强" ? colors.success : label === "进行中" || label === "中" || label === "一般" ? colors.primary : label.includes("弱") || label.includes("风险") ? colors.warning : colors.gray;
   return (
-    <View style={[styles.tag, { backgroundColor: `${color}18`, borderColor: `${color}55` }]}>
-      <Text style={[styles.tagText, { color }]}>{label}</Text>
+    <View style={[styles.tag, tagStyle ? { backgroundColor: tagStyle.backgroundColor, borderColor: tagStyle.borderColor } : { backgroundColor: `${color}18`, borderColor: `${color}55` }]}>
+      <Text style={[styles.tagText, { color: tagStyle?.color ?? color }]}>{label}</Text>
     </View>
   );
 }
@@ -346,8 +360,8 @@ const styles = StyleSheet.create({
   buttonTextDisabled: { color: colors.gray },
   smallAction: { minHeight: 34, borderRadius: radius.pill, paddingHorizontal: spacing.md, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border },
   smallActionText: { color: colors.text, fontSize: 13, fontWeight: "800" },
-  tag: { borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4, borderWidth: 1, alignSelf: "flex-start" },
-  tagText: { fontSize: 12, fontWeight: "800" },
+  tag: { minWidth: 52, height: 24, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 0, borderWidth: 1, alignSelf: "center", alignItems: "center", justifyContent: "center" },
+  tagText: { fontSize: 12, lineHeight: 24, fontWeight: "700", textAlignVertical: "center" },
   progressWrap: { height: 8, borderRadius: radius.pill, backgroundColor: "#E5E7EB", overflow: "hidden" },
   progressFill: { height: 8, borderRadius: radius.pill, backgroundColor: colors.primary },
   tags: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
@@ -361,9 +375,9 @@ const styles = StyleSheet.create({
   inputMulti: { minHeight: 92, paddingTop: spacing.md, textAlignVertical: "top" },
   segment: { flexDirection: "row", backgroundColor: "#EEF2F7", padding: 4, borderRadius: radius.pill, gap: 4 },
   segmentItem: { flex: 1, paddingVertical: spacing.sm, alignItems: "center", borderRadius: radius.pill },
-  segmentItemActive: { backgroundColor: "#fff" },
+  segmentItemActive: { backgroundColor: "#0766FD" },
   segmentText: { color: colors.muted, fontWeight: "700", fontSize: 13 },
-  segmentTextActive: { color: colors.primary },
+  segmentTextActive: { color: "#FFFFFF" },
   modalFrame: { flex: 1, width: "100%", position: "relative" },
   webModalFrame: { maxWidth: 430, alignSelf: "center" },
   modalOverlay: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "rgba(17,24,39,0.28)" },
