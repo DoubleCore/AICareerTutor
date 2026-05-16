@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: spacing.xl,
     paddingVertical:10,
-    backgroundColor: "#FCFAFF",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#E5EAF2",
     gap: 2,
