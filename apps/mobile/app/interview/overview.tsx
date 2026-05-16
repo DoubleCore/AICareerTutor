@@ -1,11 +1,18 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { AppButton, Card, Screen, StatusTag, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAppStore } from "@/store/useAppStore";
 import { TaskStatus, TrainingTask } from "@/types/domain";
+
+const heroGradientStyle =
+  Platform.OS === "web"
+    ? ({
+        backgroundImage: "radial-gradient(circle at 88% 12%, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.12) 28%, rgba(255,255,255,0) 58%), linear-gradient(90deg, #3F7BFF 0%, #6A8CFF 50%, #8EA2FF 100%)"
+      } as never)
+    : null;
 
 const nextStatus: Record<TaskStatus, TaskStatus> = {
   未开始: "进行中",
@@ -72,8 +79,6 @@ export default function InterviewOverview() {
       navTitle="面试复盘"
       activeTab="面试"
       backTo="/interview/upload"
-      title="面试复盘"
-      subtitle="本次分析结果"
       footerAboveTab
       footer={
         <View style={styles.footerActions}>
@@ -86,23 +91,21 @@ export default function InterviewOverview() {
         </View>
       }
     >
-      <Card style={styles.heroCard}>
-        <View style={styles.heroLabel}>
-          <Text style={styles.heroLabelText}>本次面试</Text>
-        </View>
+      <Card style={[styles.heroCard, heroGradientStyle] as never}>
+        {Platform.OS !== "web" ? <View pointerEvents="none" style={styles.heroNativeHighlight} /> : null}
         <View style={styles.heroContent}>
-          <View style={styles.heroText}>
-            <Text style={styles.heroTitle}>{interviewReport.title}</Text>
-            <View style={styles.heroStatus}>
-              <Text style={styles.heroStatusLabel}>整体表现：</Text>
-              <Text style={styles.heroStatusBadge}>{interviewReport.overall.replace("整体表现：", "")}</Text>
+          <View style={styles.heroTopLine}>
+            <View style={styles.heroLabel}>
+              <Text style={styles.heroLabelText}>本次面试</Text>
             </View>
-            <View style={styles.heroDivider} />
-            <Text style={styles.heroConclusion}>{interviewReport.conclusion}</Text>
           </View>
-          <View style={styles.heroDecor}>
-            <MaterialIcons name="auto-awesome" size={44} color="#DBEAFE" />
+          <Text style={styles.heroTitle}>{interviewReport.title}</Text>
+          <View style={styles.heroStatus}>
+            <Text style={styles.heroStatusLabel}>整体表现：</Text>
+            <Text style={styles.heroStatusBadge}>{interviewReport.overall.replace("整体表现：", "")}</Text>
           </View>
+          <View style={styles.heroDivider} />
+          <Text style={styles.heroConclusion}>{interviewReport.conclusion}</Text>
         </View>
       </Card>
 
@@ -177,36 +180,56 @@ export default function InterviewOverview() {
 
 const styles = StyleSheet.create({
   heroCard: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-    padding: spacing.xl,
-    overflow: "hidden"
+    position: "relative",
+    backgroundColor: "#3F7BFF",
+    borderWidth: 0,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    overflow: "hidden",
+    shadowColor: "#4F78FF",
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3
+  },
+  heroNativeHighlight: {
+    position: "absolute",
+    top: -54,
+    right: -42,
+    width: 172,
+    height: 172,
+    borderRadius: 86,
+    backgroundColor: "rgba(255,255,255,0.18)"
+  },
+  heroContent: {
+    gap: spacing.md,
+    position: "relative"
+  },
+  heroTopLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    flexWrap: "wrap"
   },
   heroLabel: {
     alignSelf: "flex-start",
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     paddingVertical: 4,
-    borderRadius: radius.sm,
-    backgroundColor: "rgba(255,255,255,0.18)"
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(255,255,255,0.16)"
   },
   heroLabelText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  heroContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md
-  },
-  heroText: {
-    flex: 1,
-    gap: spacing.sm
+    color: "#EAF2FF",
+    fontSize: 11,
+    fontWeight: "400"
   },
   heroTitle: {
     color: "#fff",
-    fontSize: 25,
-    fontWeight: "900"
+    fontSize: 24,
+    fontWeight: "600",
+    lineHeight: 31,
+    textAlignVertical: "center"
   },
   heroStatus: {
     flexDirection: "row",
@@ -214,9 +237,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   heroStatusLabel: {
-    color: "#E0ECFF",
+    color: "#DDEBFF",
     fontSize: 14,
-    fontWeight: "700"
+    fontWeight: "400"
   },
   heroStatusBadge: {
     color: "#fff",
@@ -225,26 +248,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 5,
     fontSize: 13,
-    fontWeight: "900"
+    fontWeight: "400",
+    overflow: "hidden"
   },
   heroDivider: {
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.28)",
-    marginVertical: spacing.xs
+    backgroundColor: "rgba(255,255,255,0.22)"
   },
   heroConclusion: {
-    color: "#fff",
-    fontSize: 15,
-    lineHeight: 25,
-    fontWeight: "700"
-  },
-  heroDecor: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)"
+    color: "#EAF2FF",
+    fontSize: 12,
+    lineHeight: 24,
+    fontWeight: "400"
   },
   passCardContent: {
     flexDirection: "row",
