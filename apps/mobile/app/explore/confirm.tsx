@@ -412,13 +412,13 @@ const styles = StyleSheet.create({
   organizingProgressFill: { height: "100%", minWidth: 8, borderRadius: radius.pill, overflow: "hidden", backgroundColor: "#3B82F6" },
 
   hero: { marginHorizontal: -spacing.lg, marginTop: -spacing.lg, paddingTop: spacing.xl, paddingHorizontal: spacing.xl, paddingBottom: spacing.lg, backgroundColor: "#F8FAFF" },
-  pageTitle: { color: "#0B1D3A", fontSize: 26, lineHeight: 36, fontWeight: "800", letterSpacing: 0 },
+  pageTitle: { color: "#0B1D3A", fontSize: 26, lineHeight: 36, fontWeight: "700", letterSpacing: 0 },
   pageSubtitle: { marginTop: spacing.sm, color: colors.muted, fontSize: 15, lineHeight: 22, fontWeight: "400" },
   introCard: {
     marginTop: -8,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    backgroundColor: "#F8FBFF",
+    backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#E4EAF3",
     flexDirection: "row",

@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
   button_secondary: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: "#BFDBFE" },
   button_ghost: { backgroundColor: "transparent" },
   buttonDisabled: { backgroundColor: "#E5E7EB", borderColor: "#E5E7EB" },
-  buttonText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  buttonText: { color: "#fff", fontSize: 17, fontWeight: "600" },
   buttonTextSecondary: { color: colors.primary },
   buttonTextDisabled: { color: colors.gray },
   smallAction: { minHeight: 34, borderRadius: radius.pill, paddingHorizontal: spacing.md, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border },
