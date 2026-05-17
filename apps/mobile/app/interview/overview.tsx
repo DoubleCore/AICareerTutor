@@ -1,7 +1,8 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useId } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import { AppButton, Card, Screen, StatusTag, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useAppStore } from "@/store/useAppStore";
@@ -20,26 +21,35 @@ const nextStatus: Record<TaskStatus, TaskStatus> = {
   已完成: "未开始"
 };
 
-function SectionTitle({ icon, title }: { icon: keyof typeof MaterialIcons.glyphMap; title: string }) {
+function SectionTitle({ icon, title, alignWithProblemIndex }: { icon: keyof typeof MaterialIcons.glyphMap; title: string; alignWithProblemIndex?: boolean }) {
   return (
     <View style={styles.sectionTitleRow}>
-      <View style={styles.sectionIcon}>
-        <MaterialIcons name={icon} size={18} color="#fff" />
+      <View style={[styles.sectionIcon, alignWithProblemIndex ? styles.problemSectionIcon : null]}>
+        <MaterialIcons name={icon} size={alignWithProblemIndex ? 15 : 18} color="#fff" />
       </View>
-      <Text style={uiStyles.sectionTitle}>{title}</Text>
+      <Text style={styles.overviewSectionTitle}>{title}</Text>
     </View>
   );
 }
 
 function PassRing({ value }: { value: number }) {
+  const gradientId = `passRingGradient-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const radiusValue = 42;
+  const strokeWidth = 8;
   const circumference = 2 * Math.PI * radiusValue;
   const offset = circumference * (1 - value / 100);
   return (
     <View style={styles.ringWrap}>
       <Svg width={120} height={120} viewBox="0 0 120 120">
-        <Circle cx="60" cy="60" r={radiusValue} stroke="#EEF2F7" strokeWidth="11" fill="none" />
-        <Circle cx="60" cy="60" r={radiusValue} stroke={colors.primary} strokeWidth="11" strokeLinecap="round" strokeDasharray={`${circumference} ${circumference}`} strokeDashoffset={offset} fill="none" rotation="-90" origin="60,60" />
+        <Defs>
+          <LinearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor="#71A7FF" />
+            <Stop offset="48%" stopColor="#3B82F6" />
+            <Stop offset="100%" stopColor="#A884FF" />
+          </LinearGradient>
+        </Defs>
+        <Circle cx="60" cy="60" r={radiusValue} stroke="#EEF2F7" strokeWidth={strokeWidth} fill="none" />
+        <Circle cx="60" cy="60" r={radiusValue} stroke={`url(#${gradientId})`} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={`${circumference} ${circumference}`} strokeDashoffset={offset} fill="none" rotation="-90" origin="60,60" />
       </Svg>
       <Text style={styles.ringText}>{value}%</Text>
     </View>
@@ -113,7 +123,7 @@ export default function InterviewOverview() {
         <View style={styles.passCardContent}>
           <View style={styles.passText}>
             <View style={styles.passHeader}>
-              <Text style={uiStyles.sectionTitle}>通过可能性</Text>
+              <Text style={styles.overviewSectionTitle}>通过可能性</Text>
               <MaterialIcons name="info-outline" size={18} color={colors.gray} />
             </View>
             <View style={styles.passNumberRow}>
@@ -127,7 +137,7 @@ export default function InterviewOverview() {
       </Card>
 
       <Card>
-        <SectionTitle icon="warning" title="本次核心问题" />
+        <SectionTitle icon="warning" title="本次核心问题" alignWithProblemIndex />
         {interviewReport.coreProblems.map((problem, index) => (
           <View key={problem} style={styles.problemRow}>
             <View style={styles.problemIndex}>
@@ -275,6 +285,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm
   },
+  overviewSectionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "600"
+  },
   passNumberRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -282,8 +297,8 @@ const styles = StyleSheet.create({
   },
   passNumber: {
     color: colors.primary,
-    fontSize: 40,
-    fontWeight: "900"
+    fontSize: 38,
+    fontWeight: "600"
   },
   ringWrap: {
     width: 120,
@@ -295,7 +310,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     color: colors.text,
     fontSize: 24,
-    fontWeight: "900"
+    fontWeight: "600"
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -303,12 +318,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   sectionIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary
+  },
+  problemSectionIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.accent
   },
   problemRow: {
     flexDirection: "row",
@@ -316,9 +337,9 @@ const styles = StyleSheet.create({
     gap: spacing.md
   },
   problemIndex: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.accent
@@ -326,29 +347,29 @@ const styles = StyleSheet.create({
   problemIndexText: {
     color: "#fff",
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "400"
   },
   problemText: {
     flex: 1,
     color: colors.text,
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 22,
-    fontWeight: "700"
+    fontWeight: "400"
   },
   impressionBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     borderRadius: radius.md,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F5F5FE",
     padding: spacing.md
   },
   impressionText: {
     flex: 1,
     color: colors.text,
-    fontSize: 14,
+    fontSize: 12,
     lineHeight: 21,
-    fontWeight: "700"
+    fontWeight: "400"
   },
   viewGrid: {
     flexDirection: "row",
@@ -371,7 +392,7 @@ const styles = StyleSheet.create({
   viewTitle: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   actionList: {
     gap: spacing.sm
@@ -387,9 +408,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8FBFF"
   },
   actionIndex: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary
@@ -397,7 +418,7 @@ const styles = StyleSheet.create({
   actionIndexText: {
     color: "#fff",
     fontSize: 12,
-    fontWeight: "900"
+    fontWeight: "400"
   },
   actionText: {
     flex: 1
@@ -405,7 +426,7 @@ const styles = StyleSheet.create({
   actionTitle: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "900"
+    fontWeight: "700"
   },
   statusButton: {
     minHeight: 30,

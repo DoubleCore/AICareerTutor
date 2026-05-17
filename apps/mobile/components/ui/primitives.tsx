@@ -149,8 +149,12 @@ export function StatusTag({ label }: { label: string }) {
         ? { backgroundColor: "#EDF4FF", borderColor: "#A9C8FF", color: "#2F6BFF" }
         : label === "已完成"
           ? { backgroundColor: "#ECFBF1", borderColor: "#A8E0BC", color: "#22A45A" }
-          : label === "高"
-      ? { backgroundColor: "#EAF8F0", borderColor: "#8ED9A8", color: "#35B266" }
+          : label === "低"
+      ? { backgroundColor: "#EEF1F6", borderColor: "transparent", borderWidth: 0, color: colors.warning }
+      : label === "中"
+        ? { backgroundColor: "#FFF2D9", borderColor: "transparent", borderWidth: 0, color: colors.warning }
+        : label === "高"
+          ? { backgroundColor: "#E7F8EC", borderColor: "transparent", borderWidth: 0, color: colors.warning }
       : label === "较高"
         ? { backgroundColor: "#EEF4FF", borderColor: "#AFC7FF", color: "#4D82FF" }
         : label === "可尝试"
@@ -158,7 +162,7 @@ export function StatusTag({ label }: { label: string }) {
           : null;
   const color = label.includes("高") || label === "已完成" || label === "较强" ? colors.success : label === "进行中" || label === "中" || label === "一般" ? colors.primary : label.includes("弱") || label.includes("风险") ? colors.warning : colors.gray;
   return (
-    <View style={[styles.tag, tagStyle ? { backgroundColor: tagStyle.backgroundColor, borderColor: tagStyle.borderColor } : { backgroundColor: `${color}18`, borderColor: `${color}55` }]}>
+    <View style={[styles.tag, tagStyle ? { backgroundColor: tagStyle.backgroundColor, borderColor: tagStyle.borderColor, borderWidth: tagStyle.borderWidth ?? 1 } : { backgroundColor: `${color}18`, borderColor: `${color}55` }]}>
       <Text style={[styles.tagText, { color: tagStyle?.color ?? color }]}>{label}</Text>
     </View>
   );
