@@ -19,8 +19,19 @@ const logicIcons: IconName[] = ["track-changes", "person", "bar-chart", "swap-ho
 const riskIcons: IconName[] = ["gps-fixed", "bar-chart", "shuffle"];
 const focusImage = require("../../img/11-1.png") as ImageSourcePropType;
 const improvementImage = require("../../img/11-2.png") as ImageSourcePropType;
+const riskHeaderImage = require("../../img/11-3.png") as ImageSourcePropType;
 const logicIconColor = "#1D43E7";
 const logicIconBackground = "#EBF1FD";
+const riskIconColor = "#FE7979";
+const riskIconBackground = "#FEEBEC";
+const positiveFactorColor = "#43C78C";
+const positiveFactorBackground = "#F9FBFA";
+const positiveFactorBorder = "#EBF1EE";
+const positiveCheckColor = "#09BB73";
+const negativeFactorColor = "#F66971";
+const negativeFactorBackground = "#FFFAFA";
+const negativeFactorBorder = "#FCF4F5";
+const negativeCheckColor = "#FF7E7D";
 
 const starColors = ["#2563EB", colors.accent, "#F97316", "#3B82F6"];
 const statusScore: Record<string, number> = { 较强: 78, 一般: 52, 偏弱: 34 };
@@ -147,7 +158,7 @@ function RiskPanel() {
       </View>
 
       <View style={styles.subHeader}>
-        <MaterialIcons name="shield" size={20} color={colors.danger} />
+        <Image source={riskHeaderImage} style={styles.subHeaderImage} resizeMode="contain" />
         <Text style={styles.subHeaderText}>一、风险点识别</Text>
       </View>
       {interviewAnalysis.risks.risks.map((item, index) => (
@@ -162,7 +173,7 @@ function RiskPanel() {
         <FactorBox tone="positive" title="拉高判断的因素" items={interviewAnalysis.risks.positives} />
         <FactorBox tone="negative" title="拉低判断的因素" items={interviewAnalysis.risks.negatives} />
       </View>
-      <TipCard title="改进优先级" text="风险点是可改进的，建议优先解决高风险问题，提升面试稳定性。" />
+      <TipCard title="改进优先级" text="风险点是可改进的，建议优先解决高风险问题，提升面试稳定性。" iconImage={improvementImage} borderless hideTitle backgroundColor="#F7FAFF" textColor="#7F95DF" />
     </View>
   );
 }
@@ -260,15 +271,14 @@ function QuestionCard({ index, question, intent, answer }: { index: number; ques
 }
 
 function RiskItem({ index, icon, title, level }: { index: number; icon: IconName; title: string; level: string }) {
-  const color = level === "高风险" ? colors.danger : colors.warning;
   return (
     <View style={styles.riskItem}>
-      <View style={[styles.riskIcon, { backgroundColor: light(color, "14") }]}>
-        <MaterialIcons name={icon} size={26} color={color} />
+      <View style={[styles.riskIcon, { backgroundColor: riskIconBackground }]}>
+        <MaterialIcons name={icon} size={28} color={riskIconColor} />
       </View>
       <View style={styles.riskBody}>
-        <View style={styles.metricTop}>
-          <Text style={styles.riskTitle}>{index}. {title}</Text>
+        <View style={styles.metricHeaderTop}>
+          <Text style={[styles.metricTitle, styles.riskTitleCompact]}>{index}. {title}</Text>
           <StatusPill status={level} />
         </View>
         <Text style={styles.metricDesc}>{index === 1 ? "面试官难以判断你的真实贡献和能力边界。" : index === 2 ? "缺少具体数据或业务影响，导致价值感不足。" : "重点不够聚焦，逻辑跳跃会影响整体印象。"}</Text>
@@ -278,13 +288,22 @@ function RiskItem({ index, icon, title, level }: { index: number; icon: IconName
 }
 
 function FactorBox({ tone, title, items }: { tone: "positive" | "negative"; title: string; items: string[] }) {
-  const color = tone === "positive" ? colors.success : colors.danger;
+  const isPositive = tone === "positive";
+  const titleColor = isPositive ? positiveFactorColor : negativeFactorColor;
+  const boxBackground = isPositive ? positiveFactorBackground : negativeFactorBackground;
+  const borderColor = isPositive ? positiveFactorBorder : negativeFactorBorder;
+  const itemStyle = isPositive ? styles.factorItemPositive : styles.factorItemNegative;
+  const iconColor = isPositive ? positiveCheckColor : negativeCheckColor;
+  const arrowIcon = isPositive ? "arrow-upward" : "arrow-downward";
   return (
-    <View style={[styles.factorBox, { backgroundColor: tone === "positive" ? "#F0FDF4" : "#FFF1F2", borderColor: light(color, "24") }]}>
-      <Text style={[styles.factorTitle, { color }]}>{tone === "positive" ? "↑ " : "↓ "}{title}</Text>
+    <View style={[styles.factorBox, { backgroundColor: boxBackground, borderColor }]}>
+      <View style={styles.factorTitleRow}>
+        <MaterialIcons name={arrowIcon} size={20} color={titleColor} />
+        <Text style={[styles.factorTitle, { color: titleColor }]}>{title}</Text>
+      </View>
       {items.map((item) => (
-        <View key={item} style={styles.factorItem}>
-          <MaterialIcons name={tone === "positive" ? "check-circle" : "cancel"} size={18} color={color} />
+        <View key={item} style={[styles.factorItem, itemStyle]}>
+          <MaterialIcons name={tone === "positive" ? "check-circle" : "cancel"} size={18} color={iconColor} />
           <Text style={styles.factorText}>{item}</Text>
         </View>
       ))}
@@ -292,15 +311,33 @@ function FactorBox({ tone, title, items }: { tone: "positive" | "negative"; titl
   );
 }
 
-function TipCard({ title, text, iconImage, borderless, titleMedium }: { title: string; text: string; iconImage?: ImageSourcePropType; borderless?: boolean; titleMedium?: boolean }) {
+function TipCard({
+  title,
+  text,
+  iconImage,
+  borderless,
+  titleMedium,
+  hideTitle,
+  backgroundColor,
+  textColor
+}: {
+  title: string;
+  text: string;
+  iconImage?: ImageSourcePropType;
+  borderless?: boolean;
+  titleMedium?: boolean;
+  hideTitle?: boolean;
+  backgroundColor?: string;
+  textColor?: string;
+}) {
   return (
-    <View style={[styles.tipCard, borderless ? styles.tipCardBorderless : null]}>
+    <View style={[styles.tipCard, borderless ? styles.tipCardBorderless : null, backgroundColor ? { backgroundColor } : null]}>
       <View style={[styles.tipIcon, iconImage ? styles.tipImageIcon : null]}>
         {iconImage ? <Image source={iconImage} style={styles.tipIconImage} resizeMode="contain" /> : <MaterialIcons name="auto-awesome" size={22} color="#fff" />}
       </View>
       <View style={styles.tipCopy}>
-        <Text style={[styles.tipTitle, titleMedium ? styles.tipTitleMedium : null]}>{title}</Text>
-        <Text style={styles.tipText}>{text}</Text>
+        {hideTitle ? null : <Text style={[styles.tipTitle, titleMedium ? styles.tipTitleMedium : null]}>{title}</Text>}
+        <Text style={[styles.tipText, textColor ? { color: textColor } : null]}>{text}</Text>
       </View>
       <MaterialIcons name="chevron-right" size={24} color={colors.muted} />
     </View>
@@ -401,7 +438,8 @@ const styles = StyleSheet.create({
   metricContent: { flex: 1, gap: spacing.sm },
   metricHeaderTop: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   metricTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm },
-  metricTitle: { flex: 1, color: "#0F1F3D", fontSize: 15, fontWeight: "500", lineHeight: 20 },
+  metricTitle: { flex: 1, color: "#0F1F3D", fontSize: 12, fontWeight: "500", lineHeight: 20 },
+  riskTitleCompact: { fontSize: 14, lineHeight: 19 },
   metricDesc: { color: "#4B5B78", fontSize: 13, lineHeight: 20 },
   statusPill: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5 },
   statusText: { fontSize: 12, fontWeight: "500" },
@@ -429,6 +467,7 @@ const styles = StyleSheet.create({
   letterText: { fontSize: 22, fontWeight: "500" },
   interviewerSummary: {
     flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
     padding: spacing.md,
     borderWidth: 1,
@@ -437,19 +476,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAFCFF"
   },
   avatarBubble: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: "#EEF2FF",
     alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.sm
+    justifyContent: "center"
   },
   summaryCopy: { flex: 1, gap: spacing.sm },
   divider: { height: 1, backgroundColor: colors.border },
   infoLine: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
   infoCopy: { flex: 1, gap: 3 },
-  infoTitle: { color: "#0F1F3D", fontSize: 14, fontWeight: "900" },
+  infoTitle: { color: "#0F1F3D", fontSize: 14, fontWeight: "500" },
   infoText: { color: "#4B5B78", fontSize: 13, lineHeight: 20 },
   questionCard: {
     flexDirection: "row",
@@ -462,35 +500,36 @@ const styles = StyleSheet.create({
   },
   questionIndexWrap: { width: 42, alignItems: "center" },
   questionIndex: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center"
   },
-  questionIndexText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  questionIndexText: { color: "#fff", fontSize: 16, fontWeight: "400" },
   questionBody: { flex: 1, gap: spacing.md, borderLeftWidth: 1, borderLeftColor: colors.border, paddingLeft: spacing.md },
-  questionTitle: { color: "#0F1F3D", fontSize: 15, fontWeight: "900", lineHeight: 22 },
+  questionTitle: { color: "#0F1F3D", fontSize: 15, fontWeight: "600", lineHeight: 22 },
   subHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.xs },
-  subHeaderText: { color: "#0F1F3D", fontSize: 16, fontWeight: "900" },
+  subHeaderImage: { width: 30, height: 30 },
+  subHeaderText: { color: "#0F1F3D", fontSize: 16, fontWeight: "500" },
   riskItem: {
     flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
     padding: spacing.md,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: "#F4D6D9",
+    borderColor: colors.border,
     backgroundColor: "#fff"
   },
   riskIcon: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center"
   },
   riskBody: { flex: 1, gap: spacing.sm },
-  riskTitle: { flex: 1, color: "#0F1F3D", fontSize: 14, fontWeight: "900", lineHeight: 21 },
   factorGrid: { flexDirection: "row", gap: spacing.md },
   factorBox: {
     flex: 1,
@@ -499,7 +538,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm
   },
-  factorTitle: { fontSize: 14, fontWeight: "900", lineHeight: 20 },
+  factorTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  factorTitle: { flex: 1, fontSize: 13, fontWeight: "500", lineHeight: 20 },
   factorItem: {
     backgroundColor: "rgba(255,255,255,0.78)",
     borderRadius: radius.md,
@@ -510,7 +550,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.9)"
   },
-  factorText: { flex: 1, color: "#24324A", fontSize: 12, lineHeight: 18, fontWeight: "700" },
+  factorItemPositive: {
+    backgroundColor: "#FFFFFF",
+    borderColor: positiveFactorBorder
+  },
+  factorItemNegative: {
+    backgroundColor: "#FFFFFF",
+    borderColor: negativeFactorBorder
+  },
+  factorText: { flex: 1, color: "#24324A", fontSize: 12, lineHeight: 18, fontWeight: "400" },
   tipCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -543,7 +591,7 @@ const styles = StyleSheet.create({
     height: 50
   },
   tipCopy: { flex: 1, gap: 4 },
-  tipTitle: { color: "#0F1F3D", fontSize: 15, fontWeight: "900" },
+  tipTitle: { color: "#0F1F3D", fontSize: 15, fontWeight: "500" },
   tipTitleMedium: { fontWeight: "500" },
   tipText: { color: "#4B5B78", fontSize: 13, lineHeight: 20 }
 });
