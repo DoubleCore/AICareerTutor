@@ -468,7 +468,7 @@ const styles = StyleSheet.create({
   sendButtonDisabled: { backgroundColor: colors.gray },
   voiceStatus: { color: colors.muted, fontSize: 12, lineHeight: 18, paddingHorizontal: spacing.md },
   expandedOverlay: { flex: 1, justifyContent: "flex-end", alignItems: "center", backgroundColor: "rgba(0,0,0,0.32)" },
-  expandedEditor: { width: "100%", maxWidth: 430, minHeight: "78%", borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 58, paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, backgroundColor: "#fff", shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
+  expandedEditor: { width: "100%", maxWidth: 390, minHeight: "78%", borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 58, paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, backgroundColor: "#fff", shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
   collapseButton: { position: "absolute", right: spacing.xl, top: spacing.xl, width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   expandedInput: { flex: 1, color: colors.text, fontSize: 18, lineHeight: 28, padding: 0, borderWidth: 0 },
   expandedSendButton: { position: "absolute", right: spacing.xl, bottom: spacing.xl, width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" }
