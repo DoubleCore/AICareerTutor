@@ -1,6 +1,6 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, ImageSourcePropType, Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { interviewAnalysis } from "@/data/mockData";
@@ -17,6 +17,10 @@ const tabs: Array<{ key: AnalysisTab; icon: IconName }> = [
 
 const logicIcons: IconName[] = ["track-changes", "person", "bar-chart", "swap-horiz"];
 const riskIcons: IconName[] = ["gps-fixed", "bar-chart", "shuffle"];
+const focusImage = require("../../img/11-1.png") as ImageSourcePropType;
+const improvementImage = require("../../img/11-2.png") as ImageSourcePropType;
+const logicIconColor = "#1D43E7";
+const logicIconBackground = "#EBF1FD";
 
 const starColors = ["#2563EB", colors.accent, "#F97316", "#3B82F6"];
 const statusScore: Record<string, number> = { 较强: 78, 一般: 52, 偏弱: 34 };
@@ -47,7 +51,7 @@ export default function InterviewAnalysisScreen() {
 
       <Card style={styles.focusCard}>
         <View style={styles.focusIcon}>
-          <MaterialIcons name="description" size={26} color={colors.accent} />
+          <Image source={focusImage} style={styles.focusIconImage} resizeMode="contain" />
         </View>
         <View style={styles.focusCopy}>
           <Text style={styles.focusTitle}>这份分析主要聚焦 4 个方面</Text>
@@ -87,7 +91,7 @@ function LogicPanel() {
     <View style={styles.panelContent}>
       <SectionTitle title="回答逻辑分析" />
       {interviewAnalysis.logic.map((item, index) => (
-        <MetricCard key={item.title} icon={logicIcons[index] ?? "lens"} title={item.title} status={item.status} description={item.description} score={statusScore[item.status] ?? 45} color={index === 0 || index === 3 ? colors.primary : colors.danger} />
+        <MetricCard key={item.title} icon={logicIcons[index] ?? "lens"} title={item.title} status={item.status} description={item.description} score={statusScore[item.status] ?? 45} color={colors.primary} />
       ))}
     </View>
   );
@@ -103,7 +107,7 @@ function StarPanel() {
       {interviewAnalysis.star.map((item, index) => (
         <StarCard key={item.title} letter={item.title.slice(0, 1)} color={starColors[index] ?? colors.primary} title={item.title} status={item.status} description={item.description} score={statusScore[item.status] ?? 45} />
       ))}
-      <TipCard title="如何提升" text="建议在后续训练中，优先强化偏弱项，提升 STAR 结构的完整度与说服力。" />
+      <TipCard title="如何提升" text="建议在后续训练中，优先强化偏弱项，提升 STAR 结构的完整度与说服力。" iconImage={improvementImage} borderless titleMedium />
     </View>
   );
 }
@@ -181,10 +185,10 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function ProgressLine({ score, color }: { score: number; color: string }) {
+function ProgressLine({ score, color, thin }: { score: number; color: string; thin?: boolean }) {
   return (
-    <View style={styles.progressTrack}>
-      <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(8, score))}%`, backgroundColor: color }]} />
+    <View style={[styles.progressTrack, thin ? styles.progressTrackThin : null]}>
+      <View style={[styles.progressFill, thin ? styles.progressFillThin : null, { width: `${Math.min(100, Math.max(8, score))}%`, backgroundColor: color }]} />
     </View>
   );
 }
@@ -192,15 +196,15 @@ function ProgressLine({ score, color }: { score: number; color: string }) {
 function MetricCard({ icon, title, status, description, score, color }: { icon: IconName; title: string; status: string; description: string; score: number; color: string }) {
   return (
     <View style={styles.metricCard}>
-      <View style={[styles.metricIcon, { backgroundColor: light(color, "12") }]}>
-        <MaterialIcons name={icon} size={28} color={color} />
+      <View style={[styles.metricIcon, { backgroundColor: logicIconBackground }]}>
+        <MaterialIcons name={icon} size={28} color={logicIconColor} />
       </View>
       <View style={styles.metricContent}>
-        <View style={styles.metricTop}>
+        <View style={styles.metricHeaderTop}>
           <Text style={styles.metricTitle}>{title}</Text>
           <StatusPill status={status} />
         </View>
-        <ProgressLine score={score} color={color} />
+        <ProgressLine score={score} color={color} thin />
         <Text style={styles.metricDesc}>{description}</Text>
       </View>
     </View>
@@ -214,12 +218,12 @@ function StarCard({ letter, color, title, status, description, score }: { letter
         <Text style={[styles.letterText, { color }]}>{letter}</Text>
       </View>
       <View style={styles.metricContent}>
-        <View style={styles.metricTop}>
-          <Text style={styles.starTitle}>{title}</Text>
+        <View style={styles.metricHeaderTop}>
+          <Text style={styles.metricTitle}>{title}</Text>
           <StatusPill status={status} />
         </View>
+        <ProgressLine score={score} color={color} thin />
         <Text style={styles.metricDesc}>{description}</Text>
-        <ProgressLine score={score} color={color} />
       </View>
     </View>
   );
@@ -288,14 +292,14 @@ function FactorBox({ tone, title, items }: { tone: "positive" | "negative"; titl
   );
 }
 
-function TipCard({ title, text }: { title: string; text: string }) {
+function TipCard({ title, text, iconImage, borderless, titleMedium }: { title: string; text: string; iconImage?: ImageSourcePropType; borderless?: boolean; titleMedium?: boolean }) {
   return (
-    <View style={styles.tipCard}>
-      <View style={styles.tipIcon}>
-        <MaterialIcons name="auto-awesome" size={22} color="#fff" />
+    <View style={[styles.tipCard, borderless ? styles.tipCardBorderless : null]}>
+      <View style={[styles.tipIcon, iconImage ? styles.tipImageIcon : null]}>
+        {iconImage ? <Image source={iconImage} style={styles.tipIconImage} resizeMode="contain" /> : <MaterialIcons name="auto-awesome" size={22} color="#fff" />}
       </View>
       <View style={styles.tipCopy}>
-        <Text style={styles.tipTitle}>{title}</Text>
+        <Text style={[styles.tipTitle, titleMedium ? styles.tipTitleMedium : null]}>{title}</Text>
         <Text style={styles.tipText}>{text}</Text>
       </View>
       <MaterialIcons name="chevron-right" size={24} color={colors.muted} />
@@ -317,8 +321,8 @@ const styles = StyleSheet.create({
     marginTop: 3
   },
   titleCopy: { flex: 1, gap: 4 },
-  pageTitle: { color: "#0F1F3D", fontSize: 27, fontWeight: "900", lineHeight: 34 },
-  subtitle: { color: colors.muted, fontSize: 15, lineHeight: 22 },
+  pageTitle: { color: "#0F1F3D", fontSize: 27, fontWeight: "700", lineHeight: 34 },
+  subtitle: { color: colors.muted, fontSize: 14, lineHeight: 22 },
   focusCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -326,16 +330,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#FBFAFF"
   },
   focusIcon: {
-    width: 56,
-    height: 56,
+    width: 50,
+    height: 50,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#F0ECFF"
   },
+  focusIconImage: {
+    width: 50,
+    height: 50
+  },
   focusCopy: { flex: 1, gap: 6 },
-  focusTitle: { color: "#0F1F3D", fontSize: 17, fontWeight: "900" },
-  focusText: { color: colors.muted, fontSize: 13, lineHeight: 20 },
+  focusTitle: { color: "#0F1F3D", fontSize: 15, fontWeight: "600" },
+  focusText: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   analysisPanel: {
     padding: 0,
     gap: 0,
@@ -345,11 +353,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: spacing.md,
     backgroundColor: "#F3F6FB",
-    gap: 6
+    gap: 5
   },
   tabItem: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 46,
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
@@ -363,18 +371,19 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 }
   },
-  tabText: { color: colors.muted, fontSize: 14, fontWeight: "900" },
+  tabText: { color: colors.muted, fontSize: 13, fontWeight: "500" },
   tabTextActive: { color: "#fff" },
   panelContent: {
     padding: spacing.lg,
     gap: spacing.md
   },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  sectionBar: { width: 4, height: 24, borderRadius: radius.pill, backgroundColor: colors.primary },
-  sectionTitleLarge: { color: "#0F1F3D", fontSize: 20, fontWeight: "900", lineHeight: 28 },
+  sectionBar: { width: 4, height: 20, borderRadius: radius.pill, backgroundColor: colors.primary },
+  sectionTitleLarge: { color: "#0F1F3D", fontSize: 16, fontWeight: "600", lineHeight: 18 },
   sectionSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 20, marginTop: 4 },
   metricCard: {
     flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
     padding: spacing.md,
     borderWidth: 1,
@@ -383,38 +392,41 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff"
   },
   metricIcon: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center"
   },
   metricContent: { flex: 1, gap: spacing.sm },
+  metricHeaderTop: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   metricTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm },
-  metricTitle: { flex: 1, color: "#0F1F3D", fontSize: 16, fontWeight: "900", lineHeight: 22 },
+  metricTitle: { flex: 1, color: "#0F1F3D", fontSize: 15, fontWeight: "500", lineHeight: 20 },
   metricDesc: { color: "#4B5B78", fontSize: 13, lineHeight: 20 },
-  statusPill: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5, alignSelf: "flex-start" },
-  statusText: { fontSize: 12, fontWeight: "900" },
+  statusPill: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5 },
+  statusText: { fontSize: 12, fontWeight: "500" },
   progressTrack: { height: 7, borderRadius: radius.pill, backgroundColor: "#E6EAF1", overflow: "hidden" },
   progressFill: { height: 7, borderRadius: radius.pill },
+  progressTrackThin: { height: 5 },
+  progressFillThin: { height: 5 },
   starCard: {
     flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
-    padding: spacing.lg,
+    padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
     backgroundColor: "#fff"
   },
   letterIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center"
   },
-  letterText: { fontSize: 28, fontWeight: "800" },
-  starTitle: { flex: 1, color: "#0F1F3D", fontSize: 18, fontWeight: "900" },
+  letterText: { fontSize: 22, fontWeight: "500" },
   interviewerSummary: {
     flexDirection: "row",
     gap: spacing.md,
@@ -509,6 +521,9 @@ const styles = StyleSheet.create({
     borderColor: "#D8E8FF",
     backgroundColor: "#F4F9FF"
   },
+  tipCardBorderless: {
+    borderWidth: 0
+  },
   tipIcon: {
     width: 44,
     height: 44,
@@ -517,7 +532,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#60A5FA"
   },
+  tipImageIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 0,
+    backgroundColor: "transparent"
+  },
+  tipIconImage: {
+    width: 50,
+    height: 50
+  },
   tipCopy: { flex: 1, gap: 4 },
   tipTitle: { color: "#0F1F3D", fontSize: 15, fontWeight: "900" },
+  tipTitleMedium: { fontWeight: "500" },
   tipText: { color: "#4B5B78", fontSize: 13, lineHeight: 20 }
 });
