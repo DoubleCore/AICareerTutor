@@ -12,6 +12,9 @@
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "android": {
+      "package": "com.anonymous.aicareertutor"
+    }
   }
 }
