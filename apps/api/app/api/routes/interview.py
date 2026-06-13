@@ -9,6 +9,9 @@ router = APIRouter()
 
 @router.post("/upload", response_model=UploadResponse)
 def upload_interview(upload: InterviewUpload) -> UploadResponse:
+    # P1-04:文本上传做实 —— transcript 为空直接拒绝(走统一错误信封 422)。
+    if not upload.transcript.strip():
+        raise HTTPException(status_code=422, detail="面试转写文本不能为空")
     stored = file_service.store_upload_metadata(upload)
     session_id = mock_state.upload_interview(stored)
     return UploadResponse(session_id=session_id)

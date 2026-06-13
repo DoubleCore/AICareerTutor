@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Image, ImageSourcePropType, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { uploadInterview } from "@/services/interviewApi";
 
 type IconName = React.ComponentProps<typeof MaterialIcons>["name"];
 
@@ -13,11 +15,28 @@ const textInputFocusStyle = Platform.OS === "web" ? ({ outlineStyle: "none" } as
 export default function InterviewUpload() {
   const [showExit, setShowExit] = useState(false);
   const [selected, setSelected] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [jobTitle, setJobTitle] = useState("AI产品经理");
   const [company, setCompany] = useState("字节跳动");
   const [jd, setJd] = useState("负责 AI 产品需求分析、方案设计、跨团队协作和项目落地。");
   const [transcript, setTranscript] = useState("面试中主要讲述了一段校园产品项目经历，但个人贡献和结果量化表达不够清晰。");
   const canSubmit = selected || transcript.trim().length > 0;
+
+  // P1-04:真实提交上传,拿到后端生成的 sessionId 并透传给分析页;失败回退 mock-session 保证演示不中断。
+  const handleStart = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const { sessionId } = await uploadInterview({ jobTitle, company, jd, transcript });
+      router.push(`/interview/analyzing?sessionId=${encodeURIComponent(sessionId)}`);
+    } catch (err: unknown) {
+      const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+      console.warn("[upload] 上传失败,回退 mock-session:", reason);
+      router.push("/interview/analyzing?sessionId=mock-session");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <>
@@ -27,7 +46,7 @@ export default function InterviewUpload() {
         onClose={() => setShowExit(true)}
         activeTab="面试"
         footerAboveTab
-        footer={<StartButton enabled={canSubmit} onPress={() => router.push("/interview/analyzing")} />}
+        footer={<StartButton enabled={canSubmit && !submitting} onPress={handleStart} />}
       >
         <View style={styles.hero}>
           <View style={styles.titleRow}>
