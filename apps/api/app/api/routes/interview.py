@@ -24,7 +24,8 @@ def analyze_interview(session_id: str = "mock-session") -> InterviewReport:
 
 @router.get("/overview/{session_id}", response_model=InterviewReport)
 def overview(session_id: str) -> InterviewReport:
-    return mock_state.get_report(session_id)
+    # P1-06:纯读 —— 经 ai_service 读缓存报告,未命中回退 mock,绝不触发 real LLM。
+    return ai_service.get_interview_report(session_id)
 
 
 @router.get("/analysis/{session_id}", response_model=InterviewAnalysis)

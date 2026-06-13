@@ -56,3 +56,31 @@
 - **前端**:无改动 —— 纯后端任务,前端仍走同一 sessionId 链路;mock 模式对前端透明。
 - **未做(留后续)**:真实 key 的端到端联调(需用户在本地 `.env` 配 key 后自测)、analysis 接口的 real 模式(本任务只做 report)。
 - **是否通过**:✅ 通过(mock 全绿;real 分发逻辑与回退已验证,真实出参待用户配 key 联调)
+
+---
+
+## P1-06 报告读取(按 sessionId,缓存不重生成)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **目标**:把报告从「每次 GET 重新拼装」改成「生成一次、按 sessionId 缓存、读操作只读缓存」。修掉 P1-05 的隐患:real 模式下 `/overview` 每次刷新都会重新烧一次 LLM。同时把 `/overview` 收回到 `ai_service` 这一层(此前直接调 `mock_state`,绕过了 service 分层)。
+- **改动文件**:
+  - `app/services/mock_state.py`:新增 `REPORTS: dict[str, InterviewReport]` 缓存;原 `get_report` 的构造逻辑拆成 `build_mock_report`(纯构造,不读缓存);新增 `save_report`(写缓存);`get_report` 改为**读缓存优先、未命中回退 `build_mock_report`**。
+  - `app/services/ai_service.py`:`analyze_interview` 的 mock/real/回退三条分支统一改为 `save_report(build_mock_report(...))` 或 `save_report(real_report)` —— 生成成功即入缓存;新增 `get_interview_report`(纯读,转发 `mock_state.get_report`)。
+  - `app/api/routes/interview.py`:`/overview/{session_id}` 改为经 `ai_service.get_interview_report`(纯读,不再直接调 `mock_state`,绝不触发 real LLM)。
+- **写/读分离语义**:
+  - `/analyze`(写,可能 real)→ 生成 + `save_report` 入缓存。
+  - `/overview`(读)→ 命中缓存直接返回;未命中回退构造 mock,**不烧 LLM**。
+  - `profile.py` 无参 `get_report()` → 行为不变(`mock-session` 兜底)。
+- **启动命令**:`uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
+- **测试接口**:`POST /interview/analyze?session_id=...` → `GET /interview/overview/{sessionId}`
+- **校验结果**:
+  - L1 import OK;TestClient 针对性验证:
+    - upload→analyze 后 `sid in REPORTS == True`(已缓存)
+    - 篡改缓存 title 为 `CACHED-MARKER`,再 GET overview 读到该值 → **证明读缓存不重拼**(real 模式即不重复烧 LLM)
+    - 未 analyze 的未知 session → overview 回退构造 mock,不崩
+    - profile `/home` 无参取报告仍正常
+    - real + 无 key → 回退 mock **且写进缓存**(`cached? True`)
+  - L5 `python smoke_test.py all` → PASS=16 FAIL=0(零回归)
+- **前端**:无改动 —— 纯后端任务,sessionId 链路不变;对前端透明(读到的报告与之前一致,只是不再每次重生成)。
+- **未做(留后续)**:报告落库持久化(进缓存仍是进程内内存,重启清空 —— 等 P1-08 SQLite);analysis 接口的 real 模式与缓存(仍纯 mock,且每次重拼,可在后续单独做)。
+- **是否通过**:✅ 通过

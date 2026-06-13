@@ -23,22 +23,25 @@ def analyze_interview(session_id: str) -> InterviewReport:
     - real:基于本次上传内容调用真实 Claude,按 InterviewReport schema 结构化输出。
       任何前置缺失(未配 key / SDK 不可用)或调用失败,都回退 mock,保证链路不中断。
 
+    P1-06:无论 mock 还是 real,生成成功后都把报告按 sessionId 写入缓存(save_report),
+    供 /overview 纯读返回,避免每次 GET 重新生成(real 模式下避免重复烧 LLM)。
+
     session_id 由服务端权威生成并回填,不信任模型返回的该字段。
     """
     if settings.ai_mode != "real":
-        return mock_state.get_report(session_id)
+        return mock_state.save_report(mock_state.build_mock_report(session_id))
 
     if not settings.ai_api_key:
         logger.warning("AI_MODE=real 但未配置 AI_API_KEY,回退 mock 报告(session=%s)", session_id)
-        return mock_state.get_report(session_id)
+        return mock_state.save_report(mock_state.build_mock_report(session_id))
 
     try:
         report = _real_interview_report(session_id)
         logger.info("真实 LLM 面试报告生成成功(session=%s, model=%s)", session_id, settings.ai_model)
-        return report
+        return mock_state.save_report(report)
     except Exception as exc:  # noqa: BLE001 —— 任何失败都回退 mock,演示优先
         logger.warning("真实 LLM 报告生成失败,回退 mock(session=%s):%s", session_id, exc)
-        return mock_state.get_report(session_id)
+        return mock_state.save_report(mock_state.build_mock_report(session_id))
 
 
 def _real_interview_report(session_id: str) -> InterviewReport:
@@ -134,6 +137,14 @@ def _interview_report_input_schema() -> dict:
             "priorityTasks",
         ],
     }
+
+
+def get_interview_report(session_id: str) -> InterviewReport:
+    """P1-06:读取报告(纯读,不生成)—— 命中缓存直接返回,未命中回退 mock。
+
+    /overview 走这里:绝不触发 real LLM,避免每次刷新重复生成。
+    """
+    return mock_state.get_report(session_id)
 
 
 def generate_interview_analysis(_: str) -> InterviewAnalysis:
