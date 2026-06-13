@@ -67,6 +67,10 @@ LATEST_UPLOAD = InterviewUpload()
 SESSIONS: dict[str, InterviewUpload] = {"mock-session": LATEST_UPLOAD}
 _SESSION_COUNTER = 0
 
+# P1-06:按 sessionId 缓存「已生成」的报告。/analyze 生成后写入,/overview 读取,
+# 避免每次 GET 重新拼装(real 模式下更是避免重复烧 LLM)。进程内内存,重启即清空。
+REPORTS: dict[str, InterviewReport] = {}
+
 
 def get_followups(_: ExploreProfile) -> list[FollowupQuestion]:
     return [
@@ -105,8 +109,9 @@ def upload_interview(upload: InterviewUpload) -> str:
     return session_id
 
 
-def get_report(session_id: str = "mock-session") -> InterviewReport:
-    # P1-04:按 sessionId 取回该次上传,把岗位/公司回填进报告标题;未知 session 回退默认上传内容。
+def build_mock_report(session_id: str = "mock-session") -> InterviewReport:
+    # P1-04/06:按 sessionId 取回该次上传,把岗位/公司回填进报告标题;未知 session 回退默认上传内容。
+    # 这是「构造」一份 mock 报告(不读缓存),供 ai_service 的 mock 分支与回退使用。
     upload = SESSIONS.get(session_id, LATEST_UPLOAD)
     return InterviewReport(
         session_id=session_id,
@@ -119,6 +124,23 @@ def get_report(session_id: str = "mock-session") -> InterviewReport:
         interviewer_view={"impression": "有一定经历基础，但录用信心不足。", "positives": ["有真实项目经历", "方向理解基本在线"], "concerns": ["个人贡献不够清楚", "结果证据不足", "回答有时偏散"]},
         priority_tasks=TRAINING_TASKS,
     )
+
+
+def save_report(report: InterviewReport) -> InterviewReport:
+    """P1-06:把已生成的报告按 sessionId 写入缓存。/analyze 生成成功后调用。"""
+    REPORTS[report.session_id] = report
+    return report
+
+
+def get_report(session_id: str = "mock-session") -> InterviewReport:
+    """P1-06:读取已生成的报告 —— 命中缓存直接返回,未命中回退构造一份 mock 报告。
+
+    /overview 走这里:是纯读操作,绝不触发 real LLM,避免每次刷新重复生成/烧钱。
+    """
+    cached = REPORTS.get(session_id)
+    if cached is not None:
+        return cached
+    return build_mock_report(session_id)
 
 
 def get_analysis() -> InterviewAnalysis:
