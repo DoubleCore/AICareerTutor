@@ -28,9 +28,15 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
 
     # AI / LLM
-    # ai_mode: "mock"(默认,零依赖零密钥,演示/CI 安全) | "real"(走真实 Claude 结构化输出)。
+    # ai_mode: "mock"(默认,零依赖零密钥,演示/CI 安全) | "real"(走真实模型结构化输出)。
     # real 模式还需配置 ai_api_key;缺 key 或调用失败时 ai_service 会自动回退 mock。
+    # ai_provider: real 模式下用哪家 SDK ——
+    #   "anthropic":官方 Claude(Anthropic SDK,tool-use)。
+    #   "openai":任何 OpenAI 兼容端点(DeepSeek 等),用 openai SDK + function calling;
+    #            配合 ai_base_url 指向对应服务(DeepSeek 为 https://api.deepseek.com)。
     ai_mode: Literal["mock", "real"] = "mock"
+    ai_provider: Literal["anthropic", "openai"] = "anthropic"
+    ai_base_url: str = ""  # 仅 openai provider 用;留空走 openai 官方默认
     ai_model: str = "claude-sonnet-4-6"
     ai_api_key: str = ""
     ai_max_tokens: int = 2000

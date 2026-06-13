@@ -20,8 +20,10 @@ def analyze_interview(session_id: str) -> InterviewReport:
     """P1-05:面试复盘报告生成,mock/real 双模式。
 
     - mock(默认):走 mock_state,零依赖零密钥,演示/CI 安全。
-    - real:基于本次上传内容调用真实 Claude,按 InterviewReport schema 结构化输出。
-      任何前置缺失(未配 key / SDK 不可用)或调用失败,都回退 mock,保证链路不中断。
+    - real:基于本次上传内容调用真实模型(ai_provider: anthropic / openai),
+      按 InterviewReport schema 结构化输出。openai provider 兼容 DeepSeek 等任意
+      OpenAI 协议端点(配 ai_base_url)。任何前置缺失(未配 key / SDK 不可用)或
+      调用失败,都回退 mock,保证链路不中断。
 
     P1-06:无论 mock 还是 real,生成成功后都把报告按 sessionId 写入缓存(save_report),
     供 /overview 纯读返回,避免每次 GET 重新生成(real 模式下避免重复烧 LLM)。
@@ -37,7 +39,10 @@ def analyze_interview(session_id: str) -> InterviewReport:
 
     try:
         report = _real_interview_report(session_id)
-        logger.info("真实 LLM 面试报告生成成功(session=%s, model=%s)", session_id, settings.ai_model)
+        logger.info(
+            "真实 LLM 面试报告生成成功(session=%s, provider=%s, model=%s)",
+            session_id, settings.ai_provider, settings.ai_model,
+        )
         return mock_state.save_report(report)
     except Exception as exc:  # noqa: BLE001 —— 任何失败都回退 mock,演示优先
         logger.warning("真实 LLM 报告生成失败,回退 mock(session=%s):%s", session_id, exc)
@@ -45,20 +50,31 @@ def analyze_interview(session_id: str) -> InterviewReport:
 
 
 def _real_interview_report(session_id: str) -> InterviewReport:
-    """调用 Anthropic,用 tool-use 强制按 InterviewReport schema 输出。
+    """按 ai_provider 分发到具体 SDK。两条分支产出同一份 camelCase payload,
+    再统一回填服务端权威字段(sessionId / title 兜底)并校验为 InterviewReport。
 
-    anthropic 仅在此延迟导入:mock 模式下即使未安装 SDK 也不受影响。
+    SDK 均在各自分支内延迟导入:mock 模式下即使未安装也不受影响。
     """
+    upload = mock_state.SESSIONS.get(session_id, mock_state.LATEST_UPLOAD)
+
+    if settings.ai_provider == "openai":
+        payload = _openai_report_payload(upload)
+    else:
+        payload = _anthropic_report_payload(upload)
+
+    # 服务端权威字段:sessionId 回填、title 用真实岗位名兜底,避免模型漏字段。
+    payload["session_id"] = session_id
+    payload.setdefault("title", f"{upload.job_title}一面")
+    return InterviewReport.model_validate(payload)
+
+
+def _anthropic_report_payload(upload) -> dict:
+    """官方 Claude:Anthropic SDK,tool-use 强制按 schema 输出。"""
     import anthropic
 
-    upload = mock_state.SESSIONS.get(session_id, mock_state.LATEST_UPLOAD)
     user_prompt = prompts.build_interview_user_prompt(
-        job_title=upload.job_title,
-        company=upload.company,
-        jd=upload.jd,
-        transcript=upload.transcript,
+        job_title=upload.job_title, company=upload.company, jd=upload.jd, transcript=upload.transcript,
     )
-
     client = anthropic.Anthropic(api_key=settings.ai_api_key)
     tool = {
         "name": "submit_interview_report",
@@ -73,12 +89,38 @@ def _real_interview_report(session_id: str) -> InterviewReport:
         tool_choice={"type": "tool", "name": "submit_interview_report"},
         messages=[{"role": "user", "content": user_prompt}],
     )
+    return _extract_tool_input(response, "submit_interview_report")
 
-    payload = _extract_tool_input(response, "submit_interview_report")
-    # 服务端权威字段:sessionId 回填、title 用真实岗位名兜底,避免模型漏字段。
-    payload["session_id"] = session_id
-    payload.setdefault("title", f"{upload.job_title}一面")
-    return InterviewReport.model_validate(payload)
+
+def _openai_report_payload(upload) -> dict:
+    """OpenAI 兼容端点(DeepSeek 等):用 JSON Output 模式产出结构化报告。
+
+    DeepSeek V4 思考模型在 /v1 端点不支持强制 tool_choice(官方 issue #1376),
+    故不用 function calling,改 response_format={"type":"json_object"} —— 思考模型完整支持,
+    模型把 JSON 直接写进 message.content,再 json.loads 解析。
+    base_url 来自 settings.ai_base_url(DeepSeek 填 https://api.deepseek.com)。
+    """
+    import json
+
+    from openai import OpenAI
+
+    user_prompt = prompts.build_interview_json_prompt(
+        job_title=upload.job_title, company=upload.company, jd=upload.jd, transcript=upload.transcript,
+    )
+    client = OpenAI(api_key=settings.ai_api_key, base_url=settings.ai_base_url or None)
+    response = client.chat.completions.create(
+        model=settings.ai_model,
+        max_tokens=settings.ai_max_tokens,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": prompts.INTERVIEW_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    content = response.choices[0].message.content
+    if not content or not content.strip():
+        raise ValueError("模型返回空内容(JSON Output 模式偶发,可重试或调整 prompt)")
+    return json.loads(content)
 
 
 def _extract_tool_input(response, tool_name: str) -> dict:

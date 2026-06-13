@@ -84,3 +84,26 @@
 - **前端**:无改动 —— 纯后端任务,sessionId 链路不变;对前端透明(读到的报告与之前一致,只是不再每次重生成)。
 - **未做(留后续)**:报告落库持久化(进缓存仍是进程内内存,重启清空 —— 等 P1-08 SQLite);analysis 接口的 real 模式与缓存(仍纯 mock,且每次重拼,可在后续单独做)。
 - **是否通过**:✅ 通过
+
+---
+
+## AI-DeepSeek 接入(OpenAI 兼容 provider + 真实端到端联调)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **目标**:把 real 模式从「写死 Anthropic」扩成**按 `ai_provider` 分发**,新增 `openai` 分支以接入 **DeepSeek**(官方、合规、允许服务端调用、OpenAI 协议兼容)。用真实 key 端到端验证报告能真出参,且 mock 默认与回退链路零破坏。
+- **为什么不接讯飞 Coding Plan / PackyAPI**:两者均为「编程工具交互式场景」用途,ToS **明令禁止自建后端/服务端调用**(违规封号),PackyAPI 多为逆向号池,数据安全无保障。DeepSeek 官方 API 是唯一干净的服务端调用路径。
+- **改动文件**:
+  - `app/core/config.py`:新增 `ai_provider`(anthropic/openai)、`ai_base_url`(openai 用,DeepSeek 填 `https://api.deepseek.com`)。
+  - `app/services/ai_service.py`:`_real_interview_report` 按 provider 分发;拆出 `_anthropic_report_payload`(tool-use)与 `_openai_report_payload`;两者产出同一份 camelCase payload 后统一回填 sessionId/title。
+  - `app/utils/prompts.py`:新增 `build_interview_json_prompt` + JSON 结构示例(JSON Output 模式需 prompt 含 "json" 字样并给示例)。
+  - `requirements.txt`:加 `openai>=1.40.0`。
+  - `.env.example`:AI 段补 `AI_PROVIDER`/`AI_BASE_URL` 双 provider 说明 + DeepSeek 接入示例(占位,无密钥)。
+- **关键技术决策(踩坑后定的)**:DeepSeek V4(`deepseek-v4-pro`/`flash`)**默认思考模式**,在 OpenAI `/v1` 端点**拒绝一切强制 `tool_choice`**(官方 issue #1376,实测报 `400 Thinking mode does not support this tool_choice`)。故 openai 分支**不用 function calling**,改用 **JSON Output 模式**(`response_format={"type":"json_object"}`)—— 思考模型完整支持,模型把 JSON 写进 `message.content`,`json.loads` 解析。anthropic 分支仍走 tool-use 不变。
+- **密钥安全**:真实 key 只写进本地 `.env`(已确认 `git check-ignore` 命中 + `git status` 不可见),提交文件零密钥。临时写 `.env` 的脚本用完即删。
+- **校验结果**:
+  - 分发三路径(monkeypatch):mock 正常;real+openai+无key→回退;real+openai+假key→真实 **401**→回退(证明真连到了 DeepSeek 端点);openai payload(JSON 字符串)解析+校验通过。
+  - **真实端到端**(本地 `.env` 配真 key,model=`deepseek-v4-pro`):上传含细节的转写 → analyze → 真实报告。判定为真出参而非 mock:`passPossibility=45`/`passLevel=低`(mock 固定 62/中);`coreProblems` 精准复述转写细节;`priorityTasks.id` 为模型新造(`star-method`/`quantify-metrics`,非 mock 固定 id)。
+  - L5 `python smoke_test.py all` → PASS=16 FAIL=0(mock 默认零回归)。
+- **前端**:无改动 —— provider 切换对前端透明,仍走同一 sessionId 链路。
+- **未做(留后续)**:`/analysis` 接口尚未接 real(仍纯 mock);explore 流的 real(可复用此 provider 分发接缝);报告落库待 P1-08。
+- **是否通过**:✅ 通过(DeepSeek 真实出参已验证;mock 默认 + 回退零破坏)
