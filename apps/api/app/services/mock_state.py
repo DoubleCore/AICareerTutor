@@ -62,6 +62,11 @@ TRAINING_TASKS = [
 CURRENT_PATH = CurrentPathResponse()
 LATEST_UPLOAD = InterviewUpload()
 
+# P1-04:按 sessionId 真实存储每次上传内容(进程内内存,重启即清空,非并发安全 —— P0 有意设计)。
+# 历史默认 session 仍可用,保证 profile.py 无参取报告、未知 session 不崩。
+SESSIONS: dict[str, InterviewUpload] = {"mock-session": LATEST_UPLOAD}
+_SESSION_COUNTER = 0
+
 
 def get_followups(_: ExploreProfile) -> list[FollowupQuestion]:
     return [
@@ -91,15 +96,21 @@ def save_path(direction_id: str) -> CurrentPathResponse:
 
 
 def upload_interview(upload: InterviewUpload) -> str:
-    global LATEST_UPLOAD
+    """P1-04:为每次上传生成唯一 sessionId 并存内容,返回该 sessionId(不再硬编码)。"""
+    global LATEST_UPLOAD, _SESSION_COUNTER
+    _SESSION_COUNTER += 1
+    session_id = f"session-{_SESSION_COUNTER}"
+    SESSIONS[session_id] = upload
     LATEST_UPLOAD = upload
-    return "mock-session"
+    return session_id
 
 
 def get_report(session_id: str = "mock-session") -> InterviewReport:
+    # P1-04:按 sessionId 取回该次上传,把岗位/公司回填进报告标题;未知 session 回退默认上传内容。
+    upload = SESSIONS.get(session_id, LATEST_UPLOAD)
     return InterviewReport(
         session_id=session_id,
-        title="AI产品经理一面",
+        title=f"{upload.job_title}一面",
         overall="整体表现：中等偏上",
         conclusion="你这次最主要的问题不是没有内容，而是没有把个人贡献和结果价值说清楚。",
         pass_possibility=62,

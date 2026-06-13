@@ -1,9 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Image, ImageSourcePropType, StyleSheet, Text, View } from "react-native";
 import { Card, Screen, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { analyzeInterview } from "@/services/interviewApi";
 
 const reportTitleIcon = require("../../img/4-1.png") as ImageSourcePropType;
 const tipIconImage = require("../../img/9-1.png") as ImageSourcePropType;
@@ -205,12 +207,34 @@ function StepRow({ index, title, status }: { index: number; title: string; statu
 }
 
 export default function InterviewAnalyzing() {
+  const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
+  const session = sessionId ?? "mock-session";
   const [activeStep, setActiveStep] = useState(0);
 
+  // P1-04:真实触发后端分析,完成后带 sessionId 跳转复盘页;失败也跳转(overview 自带 mock 回退)。
+  // 同时保证至少展示约 10s 动画,避免后端秒回时动画一闪而过。
   useEffect(() => {
-    const timer = setTimeout(() => router.replace("/interview/overview"), 10000);
-    return () => clearTimeout(timer);
-  }, []);
+    let navigated = false;
+    const go = () => {
+      if (navigated) return;
+      navigated = true;
+      router.replace(`/interview/overview?sessionId=${encodeURIComponent(session)}`);
+    };
+
+    const minDelay = new Promise<void>((resolve) => setTimeout(resolve, 10000));
+    const analyzed = analyzeInterview(session).catch((err: unknown) => {
+      const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+      console.warn("[analyzing] 分析失败,仍进入复盘页(走 mock 回退):", reason);
+    });
+
+    let cancelled = false;
+    Promise.all([minDelay, analyzed]).then(() => {
+      if (!cancelled) go();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   useEffect(() => {
     if (activeStep >= steps.length) return;

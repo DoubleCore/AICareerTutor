@@ -1,5 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useId, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
@@ -84,13 +84,15 @@ function ActionTask({ task, index, onPress }: { task: TrainingTask; index: numbe
 }
 
 export default function InterviewOverview() {
+  const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
+  const session = sessionId ?? "mock-session";
   const { interviewReport: storeReport, trainingTasks, updateTrainingTask } = useAppStore();
   const [apiReport, setApiReport] = useState<InterviewReport | null>(null);
 
-  // P1-03 联调:挂载时拉取真实后端报告;失败则回退到 store mock,保证演示不中断。
+  // P1-03/04 联调:挂载时按 sessionId 拉取真实后端报告;失败则回退到 store mock,保证演示不中断。
   useEffect(() => {
     let cancelled = false;
-    getInterviewOverview("mock-session")
+    getInterviewOverview(session)
       .then((report) => {
         if (!cancelled) {
           setApiReport(report);
@@ -103,7 +105,7 @@ export default function InterviewOverview() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session]);
 
   const interviewReport = apiReport ?? storeReport;
 
