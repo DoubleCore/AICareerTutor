@@ -125,6 +125,7 @@ def get_analysis() -> InterviewAnalysis:
         ],
         interviewer={
             "summary": "有一定经历基础，但个人贡献和结果证据不足，录用信心仍不稳定。",
+            "hesitations": ["个人 ownership 不够清楚", "结果证据不足", "回答有时偏散"],
             "questions": [{"question": "你在这个项目里具体负责什么？", "intent": "确认你的个人 ownership", "answer": "更多在讲项目整体，个人贡献不够集中"}],
         },
         risks={"risks": ["项目贡献不清", "结果量化不足", "回答偏散"], "positives": ["有真实项目经历"], "negatives": ["STAR 结构不稳定"]},

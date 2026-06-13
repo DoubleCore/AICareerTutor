@@ -11,7 +11,7 @@ router = APIRouter()
 def upload_interview(upload: InterviewUpload) -> UploadResponse:
     stored = file_service.store_upload_metadata(upload)
     session_id = mock_state.upload_interview(stored)
-    return UploadResponse(session_id=session_id, upload=stored)
+    return UploadResponse(session_id=session_id)
 
 
 @router.post("/analyze", response_model=InterviewReport)

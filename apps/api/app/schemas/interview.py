@@ -1,11 +1,11 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from app.schemas.common import CamelModel
 
 TaskStatus = Literal["未开始", "进行中", "已完成"]
 
 
-class InterviewUpload(BaseModel):
+class InterviewUpload(CamelModel):
     file_name: str = "mock_interview_note.txt"
     job_title: str = "AI产品经理"
     company: str = "字节跳动"
@@ -13,25 +13,25 @@ class InterviewUpload(BaseModel):
     transcript: str = "面试中主要讲述了一段校园产品项目经历，但个人贡献和结果量化表达不够清晰。"
 
 
-class UploadResponse(BaseModel):
+class UploadResponse(CamelModel):
     session_id: str
-    upload: InterviewUpload
+    status: str = "uploaded"
 
 
-class TrainingTask(BaseModel):
+class TrainingTask(CamelModel):
     id: str
     title: str
     description: str
     status: TaskStatus
 
 
-class InterviewerView(BaseModel):
+class InterviewerView(CamelModel):
     impression: str
     positives: list[str]
     concerns: list[str]
 
 
-class InterviewReport(BaseModel):
+class InterviewReport(CamelModel):
     session_id: str = "mock-session"
     title: str
     overall: str
@@ -43,12 +43,30 @@ class InterviewReport(BaseModel):
     priority_tasks: list[TrainingTask]
 
 
-class InterviewAnalysis(BaseModel):
+class AnalysisQuestion(CamelModel):
+    question: str
+    intent: str
+    answer: str
+
+
+class InterviewerAnalysis(CamelModel):
+    summary: str
+    hesitations: list[str]
+    questions: list[AnalysisQuestion]
+
+
+class RiskAnalysis(CamelModel):
+    risks: list[str]
+    positives: list[str]
+    negatives: list[str]
+
+
+class InterviewAnalysis(CamelModel):
     logic: list[dict[str, str]]
     star: list[dict[str, str]]
-    interviewer: dict
-    risks: dict
+    interviewer: InterviewerAnalysis
+    risks: RiskAnalysis
 
 
-class UpdateTrainingTaskRequest(BaseModel):
+class UpdateTrainingTaskRequest(CamelModel):
     status: TaskStatus
