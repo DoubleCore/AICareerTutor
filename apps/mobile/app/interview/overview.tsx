@@ -1,12 +1,14 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import { AppButton, Card, Screen, StatusTag, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { getInterviewOverview } from "@/services/interviewApi";
 import { useAppStore } from "@/store/useAppStore";
-import { TaskStatus, TrainingTask } from "@/types/domain";
+import { InterviewReport, TaskStatus, TrainingTask } from "@/types/domain";
 
 const heroGradientStyle =
   Platform.OS === "web"
@@ -82,7 +84,28 @@ function ActionTask({ task, index, onPress }: { task: TrainingTask; index: numbe
 }
 
 export default function InterviewOverview() {
-  const { interviewReport, trainingTasks, updateTrainingTask } = useAppStore();
+  const { interviewReport: storeReport, trainingTasks, updateTrainingTask } = useAppStore();
+  const [apiReport, setApiReport] = useState<InterviewReport | null>(null);
+
+  // P1-03 联调:挂载时拉取真实后端报告;失败则回退到 store mock,保证演示不中断。
+  useEffect(() => {
+    let cancelled = false;
+    getInterviewOverview("mock-session")
+      .then((report) => {
+        if (!cancelled) {
+          setApiReport(report);
+        }
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[overview] 拉取后端报告失败,回退本地数据:", reason);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const interviewReport = apiReport ?? storeReport;
 
   return (
     <Screen
