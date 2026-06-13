@@ -29,3 +29,30 @@
   - 前端 `npx tsc --noEmit` → EXIT:0
   - L5 `python smoke_test.py all` → PASS=16 FAIL=0(回归无破坏)
 - **是否通过**:✅ 通过
+
+---
+
+## P1-05 LLM 报告(mock/real 双模式)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **目标**:把 `ai_service.analyze_interview` 从「只转发 mock」改造成**配置驱动的双模式**。默认 `mock`(零依赖零密钥,演示/CI 安全);`AI_MODE=real` 且配了 `AI_API_KEY` 时走真实 Claude 结构化输出,按 `InterviewReport` schema 产出。**任何前置缺失或调用失败一律回退 mock**,链路不中断。接缝锁在 `ai_service.py`,不跑 `/new-sdk-app`。
+- **改动文件**:
+  - `app/core/config.py`:新增 `ai_mode: Literal["mock","real"]="mock"`、`ai_model` 默认 `claude-sonnet-4-6`、`ai_max_tokens=2000`。
+  - `app/utils/prompts.py`:补面试复盘真实 `INTERVIEW_SYSTEM_PROMPT`(中文、资深面试官+教练设定)+ `build_interview_user_prompt()` 拼接本次上传内容。
+  - `app/services/ai_service.py`:`analyze_interview` 按 `ai_mode` 分发;`_real_interview_report` 用 Anthropic tool-use(`tool_choice` 强制)按手写 camelCase JSON Schema 约束输出;`anthropic` 仅在 real 分支内**延迟导入**;sessionId 服务端权威回填、title 兜底。
+  - `requirements.txt`:加 `anthropic>=0.40.0`(real 模式需要,mock 不依赖)。
+  - `.env.example`:AI 段补 `AI_MODE` / `AI_MAX_TOKENS` 与双模式说明(占位,无真实密钥)。
+- **密钥安全**:真实 key 只进本地 `.env`(gitignore + settings deny),提交文件里无任何密钥。
+- **启动命令**:`uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`(默认 mock);real 模式在 `.env` 设 `AI_MODE=real` + `AI_API_KEY=...`。
+- **测试接口**:`POST /interview/analyze?session_id=...` → `GET /interview/overview/{sessionId}`
+- **校验结果**:
+  - L1 `import app.main` OK,`settings.ai_mode=mock`(默认安全)
+  - 双模式分发针对性验证(monkeypatch settings,无需真 key):
+    - real + 无 key → 回退 mock(`AI产品经理一面` pass=62),不崩
+    - mock → 正常
+    - real + 假 key → 真实调用失败 → 回退 mock,不崩
+  - real 路径 payload 校验:模拟 LLM 返回的 camelCase dict + sessionId 回填 → `InterviewReport.model_validate` 通过,序列化键为 camelCase
+  - L5 `python smoke_test.py interview` → PASS=7;`all` → PASS=16 FAIL=0(mock 模式行为与 P1-04 完全一致,零回归)
+- **前端**:无改动 —— 纯后端任务,前端仍走同一 sessionId 链路;mock 模式对前端透明。
+- **未做(留后续)**:真实 key 的端到端联调(需用户在本地 `.env` 配 key 后自测)、analysis 接口的 real 模式(本任务只做 report)。
+- **是否通过**:✅ 通过(mock 全绿;real 分发逻辑与回退已验证,真实出参待用户配 key 联调)

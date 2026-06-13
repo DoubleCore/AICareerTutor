@@ -3,3 +3,5 @@ uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 pydantic-settings>=2.2.0
 python-multipart>=0.0.9
+# P1-05:real 模式(AI_MODE=real)走真实 Claude 时需要;默认 mock 模式不依赖它。
+anthropic>=0.40.0

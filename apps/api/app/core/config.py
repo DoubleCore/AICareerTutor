@@ -28,8 +28,12 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
 
     # AI / LLM
-    ai_model: str = ""
+    # ai_mode: "mock"(默认,零依赖零密钥,演示/CI 安全) | "real"(走真实 Claude 结构化输出)。
+    # real 模式还需配置 ai_api_key;缺 key 或调用失败时 ai_service 会自动回退 mock。
+    ai_mode: Literal["mock", "real"] = "mock"
+    ai_model: str = "claude-sonnet-4-6"
     ai_api_key: str = ""
+    ai_max_tokens: int = 2000
 
     @property
     def cors_origin_list(self) -> list[str]:
