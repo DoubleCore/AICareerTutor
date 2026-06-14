@@ -1,3 +1,7 @@
+from sqlmodel import Session, select
+
+from app.db.database import engine
+from app.db.models import InterviewSessionRow, ReportRow
 from app.schemas.explore import CurrentPathResponse, DirectionRecommendation, ExploreProfile, ExploreResult, ExploreTask, FollowupQuestion, JobPortrait
 from app.schemas.interview import InterviewAnalysis, InterviewReport, InterviewUpload, TrainingTask
 
@@ -62,19 +66,31 @@ TRAINING_TASKS = [
 CURRENT_PATH = CurrentPathResponse()
 LATEST_UPLOAD = InterviewUpload()
 
-# P1-04:按 sessionId 真实存储每次上传内容(进程内内存,重启即清空,非并发安全 —— P0 有意设计)。
-# 历史默认 session 仍可用,保证 profile.py 无参取报告、未知 session 不崩。
-SESSIONS: dict[str, InterviewUpload] = {"mock-session": LATEST_UPLOAD}
+# P1-08:面试链路(上传 / 报告 / 状态)从进程内 dict 改为本地 SQLite 落库,跨重启存活。
+# 表:interview_sessions(InterviewSessionRow)、interview_reports(ReportRow,status +
+# report_json 整列存)。原 SESSIONS / _SESSION_COUNTER / REPORTS / REPORT_STATUS 已移除。
+# LATEST_UPLOAD 仍作为「未命中兜底实例」(未知 session 取上传内容时返回它,保不崩)。
+#
+# sessionId 仍是 "session-N":N 从 DB 现有最大数字后缀回灌(进程启动时算一次),
+# 跨重启不撞号。explore 链路、TRAINING_TASKS 仍在内存(不在 P1-08 范围)。
 _SESSION_COUNTER = 0
 
-# P1-06:按 sessionId 缓存「已生成」的报告。/analyze 生成后写入,/overview 读取,
-# 避免每次 GET 重新拼装(real 模式下更是避免重复烧 LLM)。进程内内存,重启即清空。
-REPORTS: dict[str, InterviewReport] = {}
 
-# 方案C:按 sessionId 追踪报告生成状态。/analyze 改为后台异步生成 —— 先置 "generating",
-# 后台线程跑完(成功或回退 mock)置 "ready"。前端 analyzing 页轮询 /status,ready 才跳 overview。
-# 进程内内存,重启即清空(与 REPORTS 同生命周期)。
-REPORT_STATUS: dict[str, str] = {}
+def _seed_session_counter() -> None:
+    """从 DB 已有 session-N 行回灌计数器,使新 session 不与历史撞号(跨重启)。
+
+    幂等:进程启动(init_db 后)调一次即可;表为空时计数器保持 0。
+    """
+    global _SESSION_COUNTER
+    max_n = 0
+    with Session(engine) as session:
+        rows = session.exec(select(InterviewSessionRow.session_id)).all()
+    for sid in rows:
+        if sid.startswith("session-"):
+            suffix = sid.removeprefix("session-")
+            if suffix.isdigit():
+                max_n = max(max_n, int(suffix))
+    _SESSION_COUNTER = max_n
 
 
 def get_followups(_: ExploreProfile) -> list[FollowupQuestion]:
@@ -105,19 +121,49 @@ def save_path(direction_id: str) -> CurrentPathResponse:
 
 
 def upload_interview(upload: InterviewUpload) -> str:
-    """P1-04:为每次上传生成唯一 sessionId 并存内容,返回该 sessionId(不再硬编码)。"""
+    """P1-04/08:为每次上传生成唯一 sessionId 并落库,返回该 sessionId。"""
     global LATEST_UPLOAD, _SESSION_COUNTER
     _SESSION_COUNTER += 1
     session_id = f"session-{_SESSION_COUNTER}"
-    SESSIONS[session_id] = upload
+    with Session(engine) as session:
+        session.add(
+            InterviewSessionRow(
+                session_id=session_id,
+                file_name=upload.file_name,
+                job_title=upload.job_title,
+                company=upload.company,
+                jd=upload.jd,
+                transcript=upload.transcript,
+            )
+        )
+        session.commit()
     LATEST_UPLOAD = upload
     return session_id
 
 
+def get_upload(session_id: str = "mock-session") -> InterviewUpload:
+    """P1-08:按 sessionId 取回上传内容(从 DB)。未命中返回兜底实例,保「未知 session 不崩」。
+
+    替代原 SESSIONS.get(sid, LATEST_UPLOAD):default session(mock-session)从未落库,
+    会走兜底 InterviewUpload() —— 与原 SESSIONS 初值({"mock-session": LATEST_UPLOAD})等价。
+    """
+    with Session(engine) as session:
+        row = session.get(InterviewSessionRow, session_id)
+    if row is None:
+        return LATEST_UPLOAD
+    return InterviewUpload(
+        file_name=row.file_name,
+        job_title=row.job_title,
+        company=row.company,
+        jd=row.jd,
+        transcript=row.transcript,
+    )
+
+
 def build_mock_report(session_id: str = "mock-session") -> InterviewReport:
-    # P1-04/06:按 sessionId 取回该次上传,把岗位/公司回填进报告标题;未知 session 回退默认上传内容。
-    # 这是「构造」一份 mock 报告(不读缓存),供 ai_service 的 mock 分支与回退使用。
-    upload = SESSIONS.get(session_id, LATEST_UPLOAD)
+    # P1-04/06/08:按 sessionId 取回该次上传(从 DB),把岗位/公司回填进报告标题;未知 session 回退默认。
+    # 这是「构造」一份 mock 报告(不读/写缓存),供 ai_service 的 mock 分支与回退使用。
+    upload = get_upload(session_id)
     return InterviewReport(
         session_id=session_id,
         title=f"{upload.job_title}一面",
@@ -132,37 +178,65 @@ def build_mock_report(session_id: str = "mock-session") -> InterviewReport:
 
 
 def save_report(report: InterviewReport) -> InterviewReport:
-    """P1-06:把已生成的报告按 sessionId 写入缓存。/analyze 生成成功后调用。"""
-    REPORTS[report.session_id] = report
+    """P1-06/08:把已生成的报告按 sessionId 落库(upsert)。/analyze 生成成功后调用。
+
+    写 report_json(整列 JSON)并置 status="ready" —— 有报告即就绪,对齐旧「缓存命中→ready」语义。
+    行已存在(/analyze 先建过 generating 行)则更新,否则新建。
+    """
+    payload = report.model_dump_json()
+    with Session(engine) as session:
+        row = session.get(ReportRow, report.session_id)
+        if row is None:
+            row = ReportRow(session_id=report.session_id, status="ready", report_json=payload)
+        else:
+            row.status = "ready"
+            row.report_json = payload
+        session.add(row)
+        session.commit()
     return report
 
 
 def get_report(session_id: str = "mock-session") -> InterviewReport:
-    """P1-06:读取已生成的报告 —— 命中缓存直接返回,未命中回退构造一份 mock 报告。
+    """P1-06/08:读取已生成的报告 —— 命中 DB(有 report_json)直接返回,未命中回退构造 mock。
 
-    /overview 走这里:是纯读操作,绝不触发 real LLM,避免每次刷新重复生成/烧钱。
+    /overview 走这里:纯读操作,绝不触发 real LLM,也不落库,避免每次刷新重复生成/烧钱。
     """
-    cached = REPORTS.get(session_id)
-    if cached is not None:
-        return cached
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+    if row is not None and row.report_json:
+        return InterviewReport.model_validate_json(row.report_json)
     return build_mock_report(session_id)
 
 
 def set_report_status(session_id: str, status: str) -> None:
-    """方案C:写报告生成状态。/analyze 触发后台前置 "generating",后台跑完置 "ready"。"""
-    REPORT_STATUS[session_id] = status
+    """方案C/P1-08:写报告生成状态(upsert ReportRow.status)。
+
+    /analyze 触发后台前置 "generating"(新建行,report_json 暂空),后台跑完 save_report 置 "ready"。
+    """
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+        if row is None:
+            row = ReportRow(session_id=session_id, status=status)
+        else:
+            row.status = status
+        session.add(row)
+        session.commit()
 
 
 def get_report_status(session_id: str = "mock-session") -> str:
-    """方案C:读报告生成状态。
+    """方案C/P1-08:读报告生成状态(从 DB)。
 
-    未显式记录过状态时:若报告已在缓存(如历史已生成、或 profile 无参取过),视为 "ready";
-    否则 "idle"(从未触发 analyze)。前端据此判断是否继续轮询。
+    无 ReportRow 记录时返回 "idle"(从未触发 analyze);有行但仅显式状态为准。
+    若行有 report_json 而 status 异常缺失,视为 "ready"(对齐旧「有报告即就绪」语义)。
+    前端据此判断是否继续轮询。
     """
-    status = REPORT_STATUS.get(session_id)
-    if status is not None:
-        return status
-    return "ready" if session_id in REPORTS else "idle"
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+    if row is None:
+        return "idle"
+    if row.status:
+        return row.status
+    return "ready" if row.report_json else "idle"
 
 
 def get_analysis() -> InterviewAnalysis:

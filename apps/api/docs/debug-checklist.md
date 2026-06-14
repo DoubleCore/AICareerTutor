@@ -132,3 +132,32 @@
 - **踩坑**:旧后端进程(real 模式)未随 TaskStop 真正退出,仍占 8000 端口,导致新代码起不来、答请求的是旧进程(analyze 仍同步、`/status` 404)。`netstat` 定位 PID → `taskkill //F` 释放端口后重启,新代码生效。
 - **未做(留后续)**:`/analysis` 接口仍纯 mock 未接 real;explore 流 real;报告 + 训练任务状态落库待 P1-08 / P1-07(当前 overview 任务点击是本地 state,刷新重置)。
 - **是否通过**:✅ 通过(前端首次看到真实 AI 报告;mock 默认 + 回退零破坏)
+
+---
+
+## P1-08 SQLite 落库(面试链路持久化)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **目标**:把面试链路的三块进程内 dict(`SESSIONS`/`REPORTS`/`REPORT_STATUS`)落进**本地 SQLite**,数据跨重启存活 —— 修掉「uvicorn `--reload` 一重启真实 AI 报告就没了、演示中途重启即丢档」。用 **SQLModel + 本地 SQLite**(CLAUDE.md 锁定数据层),`db/supabase_client.py` 保持占位,不碰云端。
+- **两个已敲定决策**:① **报告 JSON 整列存**(`InterviewReport` 深度嵌套,`model_dump_json()` 进一个 TEXT 列,不拆嵌套表;将来迁 Postgres 平滑切 JSONB)。② **训练任务状态持久化分开**留给 P1-07(本次 `priorityTasks` 仍随 `report_json` 只读持久化;overview 点击仍本地 state、刷新重置)。
+- **关键现状发现**:`app/db/`(`database.py` engine/init_db/get_session、`models.py` 的 `ExploreProfileRecord`)是 commit `b29c540` 的**死代码脚手架** —— 在 `app/db/` 外零调用点,`main.py` 不调 `init_db`,无 db 文件。P1-08 是**第一次把 SQLite 真正接进运行链路**。故:`models.py` 保留 `ExploreProfileRecord` 只追加面试表;`database.py` 从硬编码路径改为读 `settings.database_url`(否则 smoke 环境变量隔离无效)。
+- **改动文件**:
+  - `requirements.txt`:加 `sqlmodel>=0.0.16`(自带 SQLAlchemy,兼容 pydantic v2)。
+  - `app/core/config.py`:新增 `database_url`,默认**绝对路径**(`_APPS_API_DIR / career_tutor.db`,锚定 apps/api,不随 cwd 漂移),可被 `.env` 的 `DATABASE_URL` 覆盖。
+  - `app/db/database.py`:engine 改读 `settings.database_url`;`check_same_thread=False`(/analyze 的 BackgroundTask 在线程池另一线程写库)。
+  - `app/db/models.py`:**追加** `InterviewSessionRow`(5 扁平字段)+ `ReportRow`(`status` + `report_json` 整列,同表同生命周期)。
+  - `app/services/mock_state.py`:删 `SESSIONS`/`_SESSION_COUNTER` dict/`REPORTS`/`REPORT_STATUS`;`upload_interview`/`get_upload`(新增)/`build_mock_report`/`save_report`/`get_report`/`set_report_status`/`get_report_status` 全改 DB(短生命周期 `with Session(engine)`);新增 `_seed_session_counter`(从 DB 现有 `session-N` 最大后缀回灌,跨重启不撞号)。
+  - `app/services/ai_service.py`:`_real_interview_report` 里 `mock_state.SESSIONS.get(...)` → `mock_state.get_upload(...)`(唯一外部引用)。
+  - `app/main.py`:`lifespan` 启动时 `init_db()` + `mock_state._seed_session_counter()`,日志加 db 路径。
+  - `smoke_test.py`:导入 app **前** `os.environ.setdefault("DATABASE_URL", "sqlite:///./_smoke_test.db")` 隔离;导入后显式 `init_db()`(TestClient 不走 lifespan);末尾 `engine.dispose()` 后删临时库(含 -journal/-wal/-shm)。
+  - `.gitignore`:补 `*.db`/`*.db-journal`/`*.db-wal`/`*.db-shm`/`*.sqlite`/`*.sqlite3`。
+- **踩坑**:① venv 缺 `pydantic_settings`(环境漂移),`pip install -r requirements.txt` 未补上,显式 `pip install pydantic-settings` 才好。② smoke 首跑临时库残留 —— SQLite 连接池未关,Windows 文件被占用 `os.remove` 静默失败;删库前加 `engine.dispose()` 修复。
+- **校验结果**:
+  - L1:`import app.main` OK;`init_db()` 建三表(`explore_profile`/`interview_sessions`/`interview_reports`);`DATABASE_URL` 覆盖生效;空库 seed_counter=0。
+  - TestClient 针对性(临时库,mock):upload→`session-1`;analyze→`generating`;status→`ready`;overview 标题回填「数据分析师一面」;未知 session→status `idle`+overview 回退 mock 不崩;**DB 行真实落库**(session row 存在、report row status=ready 且 report_json 非空)。
+  - **持久化铁证(跨进程重启)**:进程A upload+analyze 写 `_persist.db` 后退出 → **全新进程B** 重开同库:seed_counter 回灌=1、读 session-1 报告与A一致、status=ready 也持久化、新上传拿 session-2 不撞号。**内存态绝做不到这点**。
+  - L5 回归:`python smoke_test.py all` → PASS=16 FAIL=0(临时库跑完自删、开发库零污染;mock 行为不变)。
+  - 前端:无改动;`npm run typecheck` → EXIT 0。
+- **线程/并发**:`check_same_thread=False` + 每函数短生命周期 `Session`。SQLite 单写,高并发可能 "database is locked";P0 单用户演示无碍 —— 与现有「非并发安全」设计一致。
+- **未做(留后续)**:训练任务按 session 状态持久化(P1-07);explore 链路落库(`ExploreProfileRecord` 仍是脚手架未接);`/analysis` 仍纯 mock;`supabase_client.py` 占位(云端阶段)。
+- **是否通过**:✅ 通过(跨重启持久化已铁证;mock 默认 + smoke 隔离零破坏)

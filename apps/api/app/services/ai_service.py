@@ -70,7 +70,7 @@ def _real_interview_report(session_id: str) -> InterviewReport:
 
     SDK 均在各自分支内延迟导入:mock 模式下即使未安装也不受影响。
     """
-    upload = mock_state.SESSIONS.get(session_id, mock_state.LATEST_UPLOAD)
+    upload = mock_state.get_upload(session_id)
 
     if settings.ai_provider == "openai":
         payload = _openai_report_payload(upload)

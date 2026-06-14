@@ -5,13 +5,24 @@
 import sys
 import io
 import json
+import os
 
 # 强制 stdout 用 UTF-8,规避 Windows 默认 GBK
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 sys.path.insert(0, ".")
+
+# P1-08:隔离 —— 在导入 app 之前把 DB 指向临时库,绝不污染开发库 career_tutor.db。
+# setdefault:允许外部已显式指定 DATABASE_URL 时尊重之。
+_SMOKE_DB = "_smoke_test.db"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///./{_SMOKE_DB}")
+
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
+from app.db.database import init_db  # noqa: E402
+
+# TestClient(client.get/post) 默认不进入 lifespan,故显式建表(否则面试链路查无表报错)。
+init_db()
 
 client = TestClient(app)
 
@@ -100,4 +111,15 @@ if __name__ == "__main__":
         print(f"未知模块: {target}。可选: {list(MODULES) + ['all']}")
         sys.exit(2)
     print(f"\n===== 汇总: PASS={PASS}  FAIL={FAIL} =====")
+    # P1-08:清理临时库(连同 -journal/-wal/-shm),不留痕。
+    # 先 dispose 释放连接池,否则 Windows 下文件被占用,os.remove 会失败留垃圾。
+    from app.db.database import engine  # noqa: E402
+    engine.dispose()
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        path = _SMOKE_DB + suffix
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
     sys.exit(1 if FAIL else 0)
