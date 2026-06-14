@@ -239,7 +239,9 @@ def get_report_status(session_id: str = "mock-session") -> str:
     return "ready" if row.report_json else "idle"
 
 
-def get_analysis() -> InterviewAnalysis:
+def build_mock_analysis() -> InterviewAnalysis:
+    # P1-09:构造一份固定的 mock 深入分析(纯构造,不读/写缓存),供 ai_service 的 mock 分支与回退使用。
+    # 原 get_analysis() 的固定构造逻辑改名至此;get_analysis 改为按 session 读缓存(未命中回退此函数)。
     return InterviewAnalysis(
         logic=[
             {"title": "回答主线", "status": "一般", "description": "回答有内容，但关键信息出现偏后，面试官需要自己提炼重点。"},
@@ -259,6 +261,38 @@ def get_analysis() -> InterviewAnalysis:
         },
         risks={"risks": ["项目贡献不清", "结果量化不足", "回答偏散"], "positives": ["有真实项目经历"], "negatives": ["STAR 结构不稳定"]},
     )
+
+
+def save_analysis(session_id: str, analysis: InterviewAnalysis) -> InterviewAnalysis:
+    """P1-09:把已生成的深入分析按 sessionId 落库(写 ReportRow.analysis_json)。
+
+    与 save_report 对称、复用同一 ReportRow:行已存在(/analyze 先建过 generating 行或已存报告)
+    则补 analysis_json,否则新建。不动 status / report_json —— analysis 与 report 同生命周期,
+    status 由报告侧/run_analysis 末尾统一置 ready。
+    """
+    payload = analysis.model_dump_json()
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+        if row is None:
+            row = ReportRow(session_id=session_id, analysis_json=payload)
+        else:
+            row.analysis_json = payload
+        session.add(row)
+        session.commit()
+    return analysis
+
+
+def get_analysis(session_id: str = "mock-session") -> InterviewAnalysis:
+    """P1-09:读取深入分析 —— 命中 DB(有 analysis_json)直接返回,未命中回退构造 mock。
+
+    /analysis 走这里(经 ai_service.generate_interview_analysis 转发):纯读操作,绝不触发 real LLM,
+    也不落库,避免每次刷新重复生成/烧钱。对齐 get_report 的纯读语义。
+    """
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+    if row is not None and row.analysis_json:
+        return InterviewAnalysis.model_validate_json(row.analysis_json)
+    return build_mock_analysis()
 
 
 def _apply_task_status(session_id: str, tasks: list[TrainingTask]) -> list[TrainingTask]:

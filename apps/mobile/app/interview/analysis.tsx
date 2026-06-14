@@ -1,9 +1,13 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { Image, ImageSourcePropType, Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { interviewAnalysis } from "@/data/mockData";
+import { ApiError } from "@/services/apiClient";
+import { getInterviewAnalysis } from "@/services/interviewApi";
+import { InterviewAnalysis } from "@/types/domain";
 
 type AnalysisTab = "逻辑" | "STAR" | "面试官" | "风险";
 type IconName = React.ComponentProps<typeof MaterialIcons>["name"];
@@ -48,7 +52,30 @@ function light(color: string, alpha = "16") {
 }
 
 export default function InterviewAnalysisScreen() {
+  const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
+  const session = sessionId ?? "mock-session";
   const [tab, setTab] = useState<AnalysisTab>("逻辑");
+  const [apiAnalysis, setApiAnalysis] = useState<InterviewAnalysis | null>(null);
+
+  // P1-09:挂载时按 sessionId 拉取真实后端深入分析;失败回退 mockData,保证演示不中断(对齐 overview.tsx)。
+  useEffect(() => {
+    let cancelled = false;
+    getInterviewAnalysis(session)
+      .then((data) => {
+        if (!cancelled) {
+          setApiAnalysis(data);
+        }
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[analysis] 拉取后端分析失败,回退本地数据:", reason);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  const analysis = apiAnalysis ?? interviewAnalysis;
 
   return (
     <Screen navTitle="深入分析" backTo="/interview/overview" activeTab="面试">
@@ -72,10 +99,10 @@ export default function InterviewAnalysisScreen() {
 
       <Card style={styles.analysisPanel}>
         <AnalysisTabs value={tab} onChange={setTab} />
-        {tab === "逻辑" ? <LogicPanel /> : null}
-        {tab === "STAR" ? <StarPanel /> : null}
-        {tab === "面试官" ? <InterviewerPanel /> : null}
-        {tab === "风险" ? <RiskPanel /> : null}
+        {tab === "逻辑" ? <LogicPanel analysis={analysis} /> : null}
+        {tab === "STAR" ? <StarPanel analysis={analysis} /> : null}
+        {tab === "面试官" ? <InterviewerPanel analysis={analysis} /> : null}
+        {tab === "风险" ? <RiskPanel analysis={analysis} /> : null}
       </Card>
     </Screen>
   );
@@ -97,25 +124,25 @@ function AnalysisTabs({ value, onChange }: { value: AnalysisTab; onChange: (valu
   );
 }
 
-function LogicPanel() {
+function LogicPanel({ analysis }: { analysis: InterviewAnalysis }) {
   return (
     <View style={styles.panelContent}>
       <SectionTitle title="回答逻辑分析" />
-      {interviewAnalysis.logic.map((item, index) => (
+      {analysis.logic.map((item, index) => (
         <MetricCard key={item.title} icon={logicIcons[index] ?? "lens"} title={item.title} status={item.status} description={item.description} score={statusScore[item.status] ?? 45} color={colors.primary} />
       ))}
     </View>
   );
 }
 
-function StarPanel() {
+function StarPanel({ analysis }: { analysis: InterviewAnalysis }) {
   return (
     <View style={styles.panelContent}>
       <View>
         <Text style={styles.sectionTitleLarge}>STAR 结构分析</Text>
         <Text style={styles.sectionSubtitle}>从情境、任务、行动、结果四个维度，评估你的回答质量。</Text>
       </View>
-      {interviewAnalysis.star.map((item, index) => (
+      {analysis.star.map((item, index) => (
         <StarCard key={item.title} letter={item.title.slice(0, 1)} color={starColors[index] ?? colors.primary} title={item.title} status={item.status} description={item.description} score={statusScore[item.status] ?? 45} />
       ))}
       <TipCard title="如何提升" text="建议在后续训练中，优先强化偏弱项，提升 STAR 结构的完整度与说服力。" iconImage={improvementImage} borderless titleMedium />
@@ -123,7 +150,7 @@ function StarPanel() {
   );
 }
 
-function InterviewerPanel() {
+function InterviewerPanel({ analysis }: { analysis: InterviewAnalysis }) {
   return (
     <View style={styles.panelContent}>
       <View>
@@ -136,21 +163,21 @@ function InterviewerPanel() {
           <MaterialIcons name="person" size={38} color="#6366F1" />
         </View>
         <View style={styles.summaryCopy}>
-          <InfoLine icon="stars" title="他大概怎么看你" text={interviewAnalysis.interviewer.summary} />
+          <InfoLine icon="stars" title="他大概怎么看你" text={analysis.interviewer.summary} />
           <View style={styles.divider} />
-          <InfoLine icon="help" title="他为什么犹豫" text={interviewAnalysis.interviewer.hesitations.join("，")} />
+          <InfoLine icon="help" title="他为什么犹豫" text={analysis.interviewer.hesitations.join("，")} />
         </View>
       </View>
 
       <Text style={styles.sectionTitleLarge}>关键追问意图分析</Text>
-      {interviewAnalysis.interviewer.questions.map((item, index) => (
+      {analysis.interviewer.questions.map((item, index) => (
         <QuestionCard key={item.question} index={index + 1} question={item.question} intent={item.intent} answer={item.answer} />
       ))}
     </View>
   );
 }
 
-function RiskPanel() {
+function RiskPanel({ analysis }: { analysis: InterviewAnalysis }) {
   return (
     <View style={styles.panelContent}>
       <View>
@@ -161,7 +188,7 @@ function RiskPanel() {
         <Image source={riskHeaderImage} style={styles.subHeaderImage} resizeMode="contain" />
         <Text style={styles.subHeaderText}>一、风险点识别</Text>
       </View>
-      {interviewAnalysis.risks.risks.map((item, index) => (
+      {analysis.risks.risks.map((item, index) => (
         <RiskItem key={item} index={index + 1} icon={riskIcons[index] ?? "warning"} title={item} level={index === 0 ? "高风险" : "中风险"} />
       ))}
 
@@ -170,8 +197,8 @@ function RiskPanel() {
         <Text style={styles.subHeaderText}>二、判断依据</Text>
       </View>
       <View style={styles.factorGrid}>
-        <FactorBox tone="positive" title="拉高判断的因素" items={interviewAnalysis.risks.positives} />
-        <FactorBox tone="negative" title="拉低判断的因素" items={interviewAnalysis.risks.negatives} />
+        <FactorBox tone="positive" title="拉高判断的因素" items={analysis.risks.positives} />
+        <FactorBox tone="negative" title="拉低判断的因素" items={analysis.risks.negatives} />
       </View>
       <TipCard title="改进优先级" text="风险点是可改进的，建议优先解决高风险问题，提升面试稳定性。" iconImage={improvementImage} borderless hideTitle backgroundColor="#F7FAFF" textColor="#7F95DF" />
     </View>

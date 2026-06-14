@@ -142,7 +142,7 @@ export default function InterviewOverview() {
       footer={
         <View style={styles.footerActions}>
           <View style={styles.footerButton}>
-            <AppButton title="查看深入分析" variant="secondary" onPress={() => router.push("/interview/analysis")} />
+            <AppButton title="查看深入分析" variant="secondary" onPress={() => router.push(`/interview/analysis?sessionId=${encodeURIComponent(session)}`)} />
           </View>
           <View style={styles.footerButton}>
             <AppButton title="进入训练进度" onPress={() => router.push("/interview/training")} />

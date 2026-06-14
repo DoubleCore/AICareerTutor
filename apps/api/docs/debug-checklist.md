@@ -189,3 +189,30 @@
 - **线程/并发**:沿用 P1-08(每函数短生命周期 `Session(engine)`,`check_same_thread=False`)。
 - **未做(留后续)**:`training.tsx`/底部 tab/store `trainingTasks` 仍走 store mock(统一接后端是更大工程);explore 链路落库;`/analysis` 接 real;`supabase_client.py` 占位。
 - **是否通过**:✅ 通过(状态叠加 + 跨 session 隔离 + 跨重启持久化均铁证;mock 默认 + smoke 零破坏)
+
+---
+
+## P1-09 /analysis 接 real AI(后端做实 + 缓存 + 接前端)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **目标**:把面试链路最后一块纯 mock —— 深入分析(`/analysis`,逻辑/STAR/面试官追问/风险四维)—— 抬到和报告同水位。改造前:后端 `generate_interview_analysis(session_id)` 直接转发 `mock_state.get_analysis()`(**无参、忽略 session、每次 GET 重构造固定 mock、不缓存、绝不调 LLM**);前端 `analysis.tsx` **根本不调后端**,直接 `import { interviewAnalysis } from "@/data/mockData"` 渲染静态 mock(`getInterviewAnalysis` 定义了全项目无人调)。
+- **两个已敲定决策(AskUserQuestion)**:① 前端范围 = **后端 + 接前端**(analysis.tsx 接上,闭环);② 生成时机 = **随报告后台生成**(惰性首次 GET 同步阻塞 ~20s 会超前端 12s 超时,故挂进 `run_analysis` 后台任务)。
+- **设计**:最大化复用报告侧 P1-05/06/08 接缝,不发明新模式。analysis 缓存**复用 `ReportRow`、追加 `analysis_json` 列**(不新建表)—— analysis 与 report 同一次 analyze 的两个产物、同 session 同生命周期(一起 generating→一起 ready),拆表只增跨表一致性协调;延续「嵌套结构整列存 JSON」。
+- **改动文件**:
+  - `app/db/models.py`:`ReportRow` 追加 `analysis_json: str | None = None`(默认空,老行/未生成回退 mock)。
+  - `app/utils/prompts.py`:新增 `ANALYSIS_SYSTEM_PROMPT`(四维拆解、status 取较强/一般/偏弱)+ `build_analysis_user_prompt`(anthropic)+ `build_analysis_json_prompt`(openai,附 `_ANALYSIS_JSON_EXAMPLE`)。
+  - `app/services/mock_state.py`:`get_analysis()` 固定构造改名 `build_mock_analysis()`(纯构造);新增 `save_analysis(session_id, analysis)`(写 `analysis_json`,不动 status/report_json)、`get_analysis(session_id)`(改签名:读缓存、未命中回退 mock,纯读)。
+  - `app/services/ai_service.py`:`run_analysis` 在 `_generate_report` 后接 `_generate_analysis` 再置 ready;新增 `_generate_analysis`(对称三分支)、`_real_interview_analysis`(provider 分发)、`_anthropic_analysis_payload`(tool-use + `_interview_analysis_input_schema`)、`_openai_analysis_payload`(JSON Output);`generate_interview_analysis` 改纯读 `get_analysis(session_id)`。复用 `_extract_tool_input`。
+  - `apps/mobile/app/interview/overview.tsx`:「查看深入分析」跳转透传 `?sessionId=`。
+  - `apps/mobile/app/interview/analysis.tsx`:按 sessionId 拉 `getInterviewAnalysis`(失败回退 mockData);四 panel(Logic/Star/Interviewer/Risk)由闭包引用模块级 mock 改为**接收 `analysis` prop**;样式/展示组件全不动。
+- **路由**:`/analysis/{session_id}` 签名不变(内部转纯读)。
+- **关键发现**:worktree `apps/api/.env` 存在(用户为早前 real 联调配的 DeepSeek key,`AI_PROVIDER=openai`),venv 缺 `openai` 模块 → real 分支抛 `No module named 'openai'` → 回退 mock。这恰好验证了**回退链路**(报告 + 分析都回退、不阻塞 ready),所有 mock 验证仍成立。`.env` 已 `git check-ignore` 命中,不提交。
+- **校验结果**:
+  - L1:`import app.main` OK;`init_db()` 后 `interview_reports` 列 = `[session_id, status, report_json, analysis_json]`(新列已建),4 表齐全。
+  - TestClient 针对性(临时库,mock)**8/8 通过**:analyze→ready;GET analysis 返回四维 + DB `analysis_json` 非空;**缓存不重生成铁证**(篡改缓存 `logic[0].title=CACHED-MARKER`,再 GET 读到该值 → 纯读未重构造);未知 session 回退 mock 不崩;real+无key 回退 mock **且写进缓存**。
+  - **跨进程重启铁证**:进程A upload+analyze 写 `_persist09.db` 退出 → 全新进程B 重开同库 `GET /analysis/session-1` 仍 200、logic 非空(内存态做不到)。
+  - L5:`python smoke_test.py all` → **PASS=16 FAIL=0**(`/interview/analysis/mock-session` 返回四维分析;零回归)。
+  - 前端:`npm run typecheck` → **EXIT 0**。
+- **收尾**:删开发库 `career_tutor.db`(SQLite 无迁移,老库缺 `analysis_json` 列 —— P0 演示数据可丢,下次 uvicorn 启动按新 schema 重建);临时脚本/库用完即删,git 仅 6 个目标源文件改动。
+- **未做(留后续)**:`/analysis` 的 real 端到端真出参(需用户本地 `.env` 配可用 key + 装 `openai`,Playwright web 自测);explore 链路落库;training 页/底部 tab 统一接后端;`supabase_client.py` 占位。
+- **是否通过**:✅ 通过(后端做实 + 缓存 + 接前端均验证;mock 默认 + 回退 + smoke 零破坏;real 出参待用户配 key 联调)

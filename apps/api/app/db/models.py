@@ -62,6 +62,10 @@ class ReportRow(SQLModel, table=True):
     report_json=None),后台生成后填 report_json + status=ready。无需跨表协调一致性。
     report_json 为 InterviewReport.model_dump_json() 结果(snake_case 内部表示);
     读出时 InterviewReport.model_validate_json 还原。status: generating|ready|failed|idle。
+
+    P1-09:analysis_json 追加列 —— 同一次 analyze 产出的「深入分析」(InterviewAnalysis,
+    逻辑/STAR/面试官/风险四维),与 report_json 同 session 同生命周期(一起 generating→一起 ready)。
+    复用本表(而非新建)避免跨表一致性协调;默认 None(老行/未生成时为空,读时回退 mock)。
     """
 
     __tablename__ = "interview_reports"
@@ -69,6 +73,7 @@ class ReportRow(SQLModel, table=True):
     session_id: str = Field(primary_key=True)
     status: str = "idle"
     report_json: str | None = None
+    analysis_json: str | None = None
 
 
 # ---------------------------------------------------------------------------
