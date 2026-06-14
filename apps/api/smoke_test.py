@@ -84,7 +84,7 @@ def test_interview():
         task_id = r.json()[0]["id"]
     except Exception:
         task_id = "mock-task"
-    call("patch", f"/interview/training/task/{task_id}", json={"status": "已完成"})
+    call("patch", f"/interview/training/{sid}/task/{task_id}", json={"status": "已完成"})
     call("post", "/interview/reset")
 
 

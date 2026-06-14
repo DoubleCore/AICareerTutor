@@ -1,7 +1,7 @@
 from sqlmodel import Session, select
 
 from app.db.database import engine
-from app.db.models import InterviewSessionRow, ReportRow
+from app.db.models import InterviewSessionRow, ReportRow, TrainingTaskStatusRow
 from app.schemas.explore import CurrentPathResponse, DirectionRecommendation, ExploreProfile, ExploreResult, ExploreTask, FollowupQuestion, JobPortrait
 from app.schemas.interview import InterviewAnalysis, InterviewReport, InterviewUpload, TrainingTask
 
@@ -261,9 +261,44 @@ def get_analysis() -> InterviewAnalysis:
     )
 
 
-def update_training_task(task_id: str, status: str) -> TrainingTask | None:
-    for task in TRAINING_TASKS:
-        if task.id == task_id:
-            task.status = status  # type: ignore[assignment]
-            return task
-    return None
+def _apply_task_status(session_id: str, tasks: list[TrainingTask]) -> list[TrainingTask]:
+    """P1-07:把该 session 持久化的任务状态叠加到报告任务清单上。
+
+    任务清单(id/title/description)来自报告 priority_tasks(只读);状态来自
+    training_task_status 表。命中表则用表里的 status,未命中保留报告里的初始 status。
+    """
+    with Session(engine) as session:
+        rows = session.exec(select(TrainingTaskStatusRow).where(TrainingTaskStatusRow.session_id == session_id)).all()
+    overrides = {row.task_id: row.status for row in rows}
+    return [task.model_copy(update={"status": overrides[task.id]}) if task.id in overrides else task for task in tasks]
+
+
+def get_training_tasks(session_id: str = "mock-session") -> list[TrainingTask]:
+    """P1-07:返回该 session 的训练任务(清单取自报告 priority_tasks,状态叠加持久化值)。
+
+    /training/{session_id} 走这里。未 analyze 的 session 会回退 mock 报告,priorityTasks
+    是 mock 三任务 —— 仍能返回、状态也能叠加(即便 mock 报告也能记状态,行为合理)。
+    """
+    tasks = get_report(session_id).priority_tasks
+    return _apply_task_status(session_id, tasks)
+
+
+def update_training_task(session_id: str, task_id: str, status: str) -> TrainingTask | None:
+    """P1-07:更新某 session 下单个训练任务的状态并落库(upsert)。
+
+    任务必须存在于该 session 报告的 priority_tasks 里(否则返回 None → 路由转 404)。
+    状态写进 training_task_status(复合主键 session+task),跨 session 隔离、跨重启存活。
+    """
+    tasks = get_report(session_id).priority_tasks
+    target = next((task for task in tasks if task.id == task_id), None)
+    if target is None:
+        return None
+    with Session(engine) as session:
+        row = session.get(TrainingTaskStatusRow, (session_id, task_id))
+        if row is None:
+            row = TrainingTaskStatusRow(session_id=session_id, task_id=task_id, status=status)
+        else:
+            row.status = status
+        session.add(row)
+        session.commit()
+    return target.model_copy(update={"status": status})

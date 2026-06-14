@@ -161,3 +161,31 @@
 - **线程/并发**:`check_same_thread=False` + 每函数短生命周期 `Session`。SQLite 单写,高并发可能 "database is locked";P0 单用户演示无碍 —— 与现有「非并发安全」设计一致。
 - **未做(留后续)**:训练任务按 session 状态持久化(P1-07);explore 链路落库(`ExploreProfileRecord` 仍是脚手架未接);`/analysis` 仍纯 mock;`supabase_client.py` 占位(云端阶段)。
 - **是否通过**:✅ 通过(跨重启持久化已铁证;mock 默认 + smoke 隔离零破坏)
+
+---
+
+## P1-07 训练任务状态按 session 持久化
+
+- **分支**:`claude/determined-swanson-f93884`
+- **目标**:把训练任务的完成状态落库,修掉 overview 页「点击切换任务状态、刷新即重置」。承接 P1-08。
+- **关键现状发现**:训练任务在**四处各存一份、互不同步**:① 后端全局 `TRAINING_TASKS` 列表(`GET /training/{session_id}` **忽略 session_id** 直接返回它,`PATCH` 在它上面就地改 —— 所有 session 共用一份);② 报告 `priority_tasks`(随 `report_json` 只读落库);③ 前端 store `trainingTasks`(mockData);④ overview 本地 `useState`(点击只改本地、**不调任何 API**)。且前端 `interviewApi.ts` 的 `getTrainingTasks`/`updateTrainingTask` 定义了但从未被调用。
+- **两个已敲定决策**:① **overview 页闭环**(只接 overview;`training.tsx`/底部 tab 仍走 store mock,统一留后续)。② **PATCH 路径带 session**(`PATCH /training/{session_id}/task/{task_id}` —— mock 模式下多 session 共用同组 task_id,不带 session 会跨 session 撞状态)。
+- **设计**:延续 P1-08「report_json 只读」—— **不改写报告 JSON**,新建独立状态表,读时叠加。任务**清单**(id/title/description)来自报告 `priority_tasks`(只读);任务**状态**来自新表(可写)。读 overview/training 时对每个 priorityTask 查状态表覆盖 status(未命中用报告里的初始 status)。
+- **改动文件**:
+  - `app/db/models.py`:**追加** `TrainingTaskStatusRow`(复合主键 `(session_id, task_id)` + `status` 列)。保留既有三表只追加。
+  - `app/services/mock_state.py`:`update_training_task` 签名改 `(session_id, task_id, status)` —— 先从该 session 报告 `priority_tasks` 校验 task 存在(不存在返 `None`→404),upsert `TrainingTaskStatusRow`,返回该 task(status 用新值,`model_copy(update=...)`);**新增** `get_training_tasks(session_id)`(取报告 priorityTasks + 叠加状态)、`_apply_task_status(session_id, tasks)` 私有助手(查该 session 全部状态行 → dict 覆盖)。`TRAINING_TASKS` 全局列表仍作为 mock 报告清单来源保留(`build_mock_report` 用),只是不再被就地改写。
+  - `app/api/routes/interview.py`:`GET /training/{session_id}` 改调 `get_training_tasks`;`PATCH` 路径加 `{session_id}` 段,传 `(session_id, task_id, status)`,`None`→404。
+  - `apps/mobile/services/interviewApi.ts`:`updateTrainingTask` 加 `sessionId` 参数 + 路径段。
+  - `apps/mobile/app/interview/overview.tsx`:`cycleTaskStatus` 改乐观更新(保留交互手感)+ 真调 `updateTrainingTask(session, taskId, target)`,失败回滚 + `console.warn`(对齐本页「失败回退本地」风格)。
+  - `smoke_test.py`:interview 用例 PATCH 路径改 `/interview/training/{sid}/task/{task_id}`(旧路径加了 session 段会 404)。
+- **踩坑**:针对性脚本里取 sessionId 误用 `session_id` 键(响应是 camelCase `sessionId`,smoke 靠 try/except 静默回退 mock-session 才没暴露 —— latent,非本次范围),改 `sessionId`;手写脚本未调 `_seed_session_counter()` 且复用了上次残留临时库 → `UNIQUE constraint failed: session-1` 撞号,清残留 + 显式 seed 后通过。
+- **校验结果**:
+  - L1:`import app.main` OK;`init_db()` 建出 `training_task_status` 表(连同既有三表),复合主键 `(session_id, task_id)` 正确。
+  - TestClient 针对性(临时库,mock):upload→analyze→`GET /training/{sid}` 返回报告 priorityTasks(status 初值);`PATCH {sid}/task/quantify-result`→已完成,再 GET 该 task 已完成(**状态叠加生效**);**跨 session 隔离铁证** —— session-1 改 `quantify-result`,session-2 同名 task_id 仍是初值「未开始」;未知 task_id→**404**。
+  - **持久化铁证(跨进程重启)**:进程A `PATCH quantify-result→已完成` 写 `_persist07.db` 后退出 → **全新进程B** 重开同库 `GET /training/session-1` 仍读到该 task=已完成。**内存态做不到**。
+  - L5 回归:`python smoke_test.py all` → PASS=16 FAIL=0(新 PATCH 路径 `/interview/training/mock-session/task/quantify-result` 走通;临时库自删、开发库零污染)。
+  - 前端:`npm run typecheck` → EXIT 0。
+- **兜底**:未 analyze 的 session(无报告)→ `get_report` 回退 `build_mock_report`,priorityTasks 是 mock 三任务 —— `get_training_tasks` 仍能返回、PATCH 能命中,状态照常落库(即便 mock 报告也能记状态,行为合理)。
+- **线程/并发**:沿用 P1-08(每函数短生命周期 `Session(engine)`,`check_same_thread=False`)。
+- **未做(留后续)**:`training.tsx`/底部 tab/store `trainingTasks` 仍走 store mock(统一接后端是更大工程);explore 链路落库;`/analysis` 接 real;`supabase_client.py` 占位。
+- **是否通过**:✅ 通过(状态叠加 + 跨 session 隔离 + 跨重启持久化均铁证;mock 默认 + smoke 零破坏)
