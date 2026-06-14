@@ -216,3 +216,29 @@
 - **收尾**:删开发库 `career_tutor.db`(SQLite 无迁移,老库缺 `analysis_json` 列 —— P0 演示数据可丢,下次 uvicorn 启动按新 schema 重建);临时脚本/库用完即删,git 仅 6 个目标源文件改动。
 - **未做(留后续)**:`/analysis` 的 real 端到端真出参(需用户本地 `.env` 配可用 key + 装 `openai`,Playwright web 自测);explore 链路落库;training 页/底部 tab 统一接后端;`supabase_client.py` 占位。
 - **是否通过**:✅ 通过(后端做实 + 缓存 + 接前端均验证;mock 默认 + 回退 + smoke 零破坏;real 出参待用户配 key 联调)
+
+---
+
+## 探索链路做实(后端真逻辑 + SQLite 持久化 + 前端 7 屏接线)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **触发**:浏览器实测(Playwright web + uvicorn access log)证实探索链路前后端两头全是假 —— 走完 intro→basic-profile→followup→result→path **全程 0 个 `/explore/*` 请求**;同期面试链路正常打后端。即:后端方向推荐写死 `DIRECTIONS`、画像存模块全局、`ExploreProfileRecord` 表建好从没接线;前端 7 屏全读 `useAppStore`,`exploreApi.ts` 7 函数定义齐全但零调用。
+- **目标**:把面试链路 P1-04~09 验证过的范式搬到探索链路 —— 后端做实 + 落 SQLite,前端 7 屏接已有 client。对齐 spec §8 验收第 1 条(探索链路跑通)。
+- **两个已敲定决策(AskUserQuestion)**:① **只持久化 + 接线,不接真实 LLM**(followups/result 内容仍 mock,只改为按 dev-user 持久化;real 版留后续);② **路径只存快照**(`/save-path` 整列 JSON 存所选 direction + 当时 tasks,不照搬 P1-07 的按任务状态表 + PATCH)。**会话模型 = dev-user 单例**(无 sessionId,不动 client 签名)。
+- **改动文件**:
+  - `app/db/models.py`:接线 `ExploreProfileRecord`(`constraints` 从 `str=""` 改 `list[str]` JSON 列,修脚手架遗留 bug,与 schema 对齐);新增 `ExploreResultRow(user_id PK, result_json)` + `CurrentPathRow(user_id PK, path_json)`(照 ReportRow「整列 JSON」范式)。
+  - `app/services/mock_state.py`:探索三块从内存改 DB —— `save_explore_profile`/`get_explore_profile`(按 user_id upsert/读 ExploreProfileRecord,profile↔record 字段映射);`get_explore_result` 拆 `build_mock_explore_result`(纯构造)+ `save_explore_result` + `get_explore_result`(**get-or-create**:命中缓存读,未命中 build+save);`save_path` 改持久化 `CurrentPathRow` + 新增 `get_current_path`;删 `CURRENT_PATH`/`LATEST_PROFILE` 全局(`LATEST_UPLOAD` 保留给面试侧)。
+  - `app/api/routes/explore.py`:7 路由删 `LATEST_PROFILE`,改调 mock_state(basic/experience/confirm → save_explore_profile;followup 先持久化再返 mock 追问;generate-result 持久化画像 + get-or-create 结果;save-path/current-path 接 DB)。
+  - `app/api/routes/profile.py`:`/home` 兼容修 —— `mock_state.CURRENT_PATH` 全局已删,改读 `get_current_path()`。
+  - 前端 7 屏(镜像面试链路 `apiX ?? mock` 范式,失败 `console.warn` 回退):basic-profile/experience/confirm 提交节点调 client(`getState()` 取最新 profile);followup study 动画后调 `generateFollowup`(核心:持久化画像);result 挂载 `generateExploreResult` → `apiResult ?? mock` 替换 4 处写死块(conclusion/directions/transferableAbilities/notRecommended,能力按 title 映射图标);path 挂载 `getCurrentPath` 水合 + `saveExplorePath` 存快照。
+- **踩坑(浏览器实测抓到 tsc 漏掉的 2 个真 bug)**:① `get_explore_result` 初版写成纯读(未命中只 build 不 save),导致 `/generate-result` 永不缓存 —— TestClient 第一次跑就 FAIL,改 get-or-create 修复。② `result.tsx` 把 client 的 `ExploreResult` **类型**与屏组件 `export default function ExploreResult()` **同名**:TS 类型/值分命名空间,`tsc` 放行;但 Babel(Metro transform)视两者皆 value binding,报 `Duplicate declaration "ExploreResult"` → entry.bundle 500、页面白屏。`tsc` 测不出,靠浏览器 console 500 + 拉 bundle 看 TransformError 才定位。改 `import { ExploreResult as ExploreResultData }` 修复。③ 8000 端口残留两个旧 uvicorn(`0.0.0.0` + `127.0.0.1`),浏览器 localhost 优先连 `127.0.0.1` 的旧进程,导致新进程 log 看不到请求 —— 全杀后单起一个才看清(与既有「stale backend 占端口」坑同款)。
+- **校验结果**:
+  - **L1**:`import app.main` OK;`init_db()` 建 6 表(新增 `current_path`/`explore_result`,`explore_profile.constraints` 类型 = JSON)。
+  - **TestClient 针对性(临时库,mock)14/14 通过**:basic-profile/experience upsert 单行、constraints 存为 list;followup 返列表;confirm 回显;generate-result 落库 + **缓存不重生成铁证**(篡改缓存 conclusion→`CACHED-MARKER`,二次 GET 读到该值);save-path 快照 + current-path 读回;profile/home 兼容(读 current-path,空库回退默认方向名)。
+  - **跨进程重启铁证**:进程A 写 profile+result+path 到 `_persist_explore.db` 退出 → 进程B 重开同库:current-path 读到 `ops-strategy`、generate-result 命中缓存、profile(ASCII sentinel 验 stage/followups round-trip + constraints list)全部读回。内存态做不到。
+  - **L5 回归**:`python smoke_test.py all` → **PASS=16 FAIL=0**(删全局后面试链路零破坏;profile/home 无路径时正确显示默认「AI产品经理」)。
+  - **前端**:`npm run typecheck` → **EXIT 0**(修 alias 后)。
+  - **端到端(Playwright web,mock,单后端干净 log)**:浏览器 origin 调 4 接口全 **200**,current-path 读回 `data-analyst`;后端 access log 出现 `OPTIONS+POST /explore/basic-profile`、`POST /generate-result`、`OPTIONS+POST /save-path`、`GET /current-path` 全 200 —— **与触发时「0 请求」完全相反,即接线成功**。
+- **未做(留后续)**:探索真实 LLM 双模式(provider 分发接缝可复用面试侧);followup 个性化问题(当前后端通用 mock,前端客户端生成为离线回退,真升级随 real-LLM 任务在后端做);训练页 + 底部 tab 统一接后端;profile-home 完整接线(本次仅兼容修)。
+- **是否通过**:✅ 通过(后端做实 + SQLite 持久化 + 前端 7 屏接线均验证;跨重启铁证;mock 默认 + 回退 + smoke 零破坏;浏览器实测从 0 请求变为全链路 200)
+

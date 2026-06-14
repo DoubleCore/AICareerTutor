@@ -4,6 +4,8 @@ import { Text, View } from "react-native";
 import { AppButton, ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { AIQuestionCard, CollectionHeader, ModernOptionSelector, ModernTextInput, NextHint, QuestionExplanation, QuestionPanel, SummarySheet } from "@/components/explore/ProfileCollectionUI";
 import { experienceQuestions } from "@/data/mockData";
+import { ApiError } from "@/services/apiClient";
+import { submitExperience } from "@/services/exploreApi";
 import { useAppStore } from "@/store/useAppStore";
 import { ExploreProfile } from "@/types/domain";
 
@@ -51,7 +53,14 @@ export default function Experience() {
       setProfileField(key, selected.map((item) => (item === "其他" ? `其他：${supplement.trim()}` : item)));
     }
     if (index < experienceQuestions.length - 1) setIndex(index + 1);
-    else router.push("/explore/followup");
+    else {
+      // 探索链路做实:末步把累积画像(含经历)提交后端落库(失败 console.warn 回退,不中断)。
+      submitExperience(useAppStore.getState().profile).catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[experience] 提交经历失败,继续流程:", reason);
+      });
+      router.push("/explore/followup");
+    }
   };
 
   return (

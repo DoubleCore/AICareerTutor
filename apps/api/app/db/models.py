@@ -21,7 +21,8 @@ class ExploreProfileRecord(SQLModel, table=True):
     education: str = ""
     major: str = ""
     goal: str = ""
-    constraints: str = ""
+    # 探索链路做实:constraints 与 schema 的 list[str] 对齐(原 str="" 是脚手架遗留 bug)。
+    constraints: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     interests: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     work_preferences: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     experiences: list[str] = Field(default_factory=list, sa_column=Column(JSON))
@@ -30,6 +31,41 @@ class ExploreProfileRecord(SQLModel, table=True):
     followups: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+
+
+# ---------------------------------------------------------------------------
+# 探索链路做实:方向推荐结果 + 已保存路径落库(照 P1-08 ReportRow「整列 JSON」范式)。
+#
+# ExploreResult / CurrentPathResponse 都是深度嵌套结构(directions 含 portrait 对象 +
+# weekly_tasks 数组),整体 model_dump_json() 进一个 TEXT 列,不拆嵌套表 —— 与报告同理。
+# 维度按 user_id(P0 单用户 dev-user,非并发),每用户单行 upsert,跨重启存活。
+# ---------------------------------------------------------------------------
+
+
+class ExploreResultRow(SQLModel, table=True):
+    """某用户的方向推荐结果(整列 JSON),主键 user_id。
+
+    result_json 为 ExploreResult.model_dump_json() 结果;读出时 model_validate_json 还原。
+    默认 None(未生成时为空,读时回退 build_mock_explore_result)。
+    """
+
+    __tablename__ = "explore_result"
+
+    user_id: str = Field(default=DEV_USER_ID, primary_key=True)
+    result_json: str | None = None
+
+
+class CurrentPathRow(SQLModel, table=True):
+    """某用户已保存的探索路径快照(整列 JSON),主键 user_id。
+
+    path_json 为 CurrentPathResponse.model_dump_json() 结果(含所选 direction + 当时 tasks 状态);
+    读出时 model_validate_json 还原。默认 None(未保存时为空,读时回退空 CurrentPathResponse)。
+    """
+
+    __tablename__ = "current_path"
+
+    user_id: str = Field(default=DEV_USER_ID, primary_key=True)
+    path_json: str | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,17 @@
+from datetime import datetime, timezone
+
 from sqlmodel import Session, select
 
 from app.db.database import engine
-from app.db.models import InterviewSessionRow, ReportRow, TrainingTaskStatusRow
+from app.db.models import (
+    DEV_USER_ID,
+    CurrentPathRow,
+    ExploreProfileRecord,
+    ExploreResultRow,
+    InterviewSessionRow,
+    ReportRow,
+    TrainingTaskStatusRow,
+)
 from app.schemas.explore import CurrentPathResponse, DirectionRecommendation, ExploreProfile, ExploreResult, ExploreTask, FollowupQuestion, JobPortrait
 from app.schemas.interview import InterviewAnalysis, InterviewReport, InterviewUpload, TrainingTask
 
@@ -63,7 +73,9 @@ TRAINING_TASKS = [
     TrainingTask(id="keywords", title="强化岗位关键词表达", description="让面试官更快感受到你的岗位匹配度", status="已完成"),
 ]
 
-CURRENT_PATH = CurrentPathResponse()
+# 探索链路做实:CURRENT_PATH / LATEST_PROFILE 全局已删 —— 画像 / 结果 / 路径改落 SQLite
+# (ExploreProfileRecord / ExploreResultRow / CurrentPathRow,按 user_id 单行 upsert)。
+# LATEST_UPLOAD 仍保留:面试链路 get_upload 的「未知 session 兜底实例」。
 LATEST_UPLOAD = InterviewUpload()
 
 # P1-08:面试链路(上传 / 报告 / 状态)从进程内 dict 改为本地 SQLite 落库,跨重启存活。
@@ -101,7 +113,60 @@ def get_followups(_: ExploreProfile) -> list[FollowupQuestion]:
     ]
 
 
-def get_explore_result() -> ExploreResult:
+# ---------------------------------------------------------------------------
+# 探索链路做实:画像 / 结果 / 路径从进程内全局改为本地 SQLite 落库(按 user_id 单行 upsert)。
+# 范式照面试侧 P1-08:save_*(model_dump_json → upsert)、get_*(命中→validate_json,未命中→回退 mock)。
+# 默认单用户(dev-user),非并发(与 P0 设计一致)。
+# ---------------------------------------------------------------------------
+
+
+def save_explore_profile(profile: ExploreProfile, user_id: str = DEV_USER_ID) -> ExploreProfile:
+    """提交画像 → 落 ExploreProfileRecord(按 user_id upsert)。schema(camelCase)↔record(snake_case)字段映射。"""
+    with Session(engine) as session:
+        row = session.exec(select(ExploreProfileRecord).where(ExploreProfileRecord.user_id == user_id)).first()
+        if row is None:
+            row = ExploreProfileRecord(user_id=user_id)
+        row.stage = profile.stage
+        row.education = profile.education
+        row.major = profile.major
+        row.goal = profile.goal
+        row.constraints = profile.constraints
+        row.interests = profile.interests
+        row.work_preferences = profile.work_preferences
+        row.experiences = profile.experiences
+        row.work_types = profile.work_types
+        row.preferred_states = profile.preferred_states
+        row.followups = profile.followups
+        row.updated_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+    return profile
+
+
+def get_explore_profile(user_id: str = DEV_USER_ID) -> ExploreProfile:
+    """读已提交画像 —— 命中 record 还原为 ExploreProfile,未命中回退默认 ExploreProfile()。"""
+    with Session(engine) as session:
+        row = session.exec(select(ExploreProfileRecord).where(ExploreProfileRecord.user_id == user_id)).first()
+    if row is None:
+        return ExploreProfile()
+    return ExploreProfile(
+        stage=row.stage,
+        education=row.education,
+        major=row.major,
+        goal=row.goal,
+        constraints=row.constraints,
+        interests=row.interests,
+        work_preferences=row.work_preferences,
+        experiences=row.experiences,
+        work_types=row.work_types,
+        preferred_states=row.preferred_states,
+        followups=row.followups,
+    )
+
+
+def build_mock_explore_result() -> ExploreResult:
+    # 探索链路做实:固定构造一份 mock 方向推荐结果(纯构造,不读/写缓存),供 mock 分支与回退使用。
+    # 原 get_explore_result() 的固定构造逻辑改名至此;get_explore_result 改为按 user_id 读缓存(未命中回退此函数)。
     return ExploreResult(
         conclusion="你更适合兼顾逻辑分析与沟通协作的岗位，而不是高度封闭、纯技术导向的方向。",
         directions=DIRECTIONS,
@@ -113,11 +178,55 @@ def get_explore_result() -> ExploreResult:
     )
 
 
-def save_path(direction_id: str) -> CurrentPathResponse:
-    global CURRENT_PATH
+def save_explore_result(result: ExploreResult, user_id: str = DEV_USER_ID) -> ExploreResult:
+    """已生成的方向推荐结果按 user_id 落库(upsert ExploreResultRow.result_json,整列 JSON)。"""
+    payload = result.model_dump_json()
+    with Session(engine) as session:
+        row = session.get(ExploreResultRow, user_id)
+        if row is None:
+            row = ExploreResultRow(user_id=user_id, result_json=payload)
+        else:
+            row.result_json = payload
+        session.add(row)
+        session.commit()
+    return result
+
+
+def get_explore_result(user_id: str = DEV_USER_ID) -> ExploreResult:
+    """读方向推荐结果(get-or-create)—— 命中缓存直接返回(刷新不重构造);未命中构造 mock 并入缓存。
+
+    /generate-result 走这里:对齐报告侧「生成成功即入缓存」+「纯读命中不重构造」语义。
+    本任务纯 mock(不调 LLM),故 build + save 即等价于生成;real 版留后续。
+    """
+    with Session(engine) as session:
+        row = session.get(ExploreResultRow, user_id)
+        if row is not None and row.result_json:
+            return ExploreResult.model_validate_json(row.result_json)
+    return save_explore_result(build_mock_explore_result(), user_id)
+
+
+def save_path(direction_id: str, user_id: str = DEV_USER_ID) -> CurrentPathResponse:
+    """保存学习路径 —— 按 direction_id 取方向 + 其 weekly_tasks 快照,落 CurrentPathRow(整列 JSON)。"""
     direction = next((item for item in DIRECTIONS if item.id == direction_id), DIRECTIONS[0])
-    CURRENT_PATH = CurrentPathResponse(direction=direction, tasks=[task.model_copy() for task in direction.weekly_tasks])
-    return CURRENT_PATH
+    path = CurrentPathResponse(direction=direction, tasks=[task.model_copy() for task in direction.weekly_tasks])
+    with Session(engine) as session:
+        row = session.get(CurrentPathRow, user_id)
+        if row is None:
+            row = CurrentPathRow(user_id=user_id, path_json=path.model_dump_json())
+        else:
+            row.path_json = path.model_dump_json()
+        session.add(row)
+        session.commit()
+    return path
+
+
+def get_current_path(user_id: str = DEV_USER_ID) -> CurrentPathResponse:
+    """读已保存路径快照 —— 命中(有 path_json)还原,未命中回退空 CurrentPathResponse()。纯读,不落库。"""
+    with Session(engine) as session:
+        row = session.get(CurrentPathRow, user_id)
+    if row is not None and row.path_json:
+        return CurrentPathResponse.model_validate_json(row.path_json)
+    return CurrentPathResponse()
 
 
 def upload_interview(upload: InterviewUpload) -> str:

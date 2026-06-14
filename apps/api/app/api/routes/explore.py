@@ -6,40 +6,40 @@ from app.services import ai_service, mock_state
 
 router = APIRouter()
 
-LATEST_PROFILE = ExploreProfile()
+# 探索链路做实:LATEST_PROFILE 全局已删 —— 画像改落 SQLite(mock_state.save_explore_profile,按 user_id upsert)。
 
 
 @router.post("/basic-profile", response_model=StatusResponse)
 def submit_basic_profile(profile: ExploreProfile) -> StatusResponse:
-    global LATEST_PROFILE
-    LATEST_PROFILE = profile
+    mock_state.save_explore_profile(profile)
     return StatusResponse(message="basic profile saved")
 
 
 @router.post("/experience", response_model=StatusResponse)
 def submit_experience(profile: ExploreProfile) -> StatusResponse:
-    global LATEST_PROFILE
-    LATEST_PROFILE = profile
+    mock_state.save_explore_profile(profile)
     return StatusResponse(message="experience saved")
 
 
 @router.post("/followup", response_model=list[FollowupQuestion])
 def generate_followup(profile: ExploreProfile) -> list[FollowupQuestion]:
-    global LATEST_PROFILE
-    LATEST_PROFILE = profile
+    # 先持久化本次画像(核心收益:后续追问/结果都基于落库画像),再返回追问(当前 mock)。
+    mock_state.save_explore_profile(profile)
     return ai_service.generate_followups(profile)
 
 
 @router.post("/confirm", response_model=ExploreProfile)
 def confirm_profile(profile: ExploreProfile) -> ExploreProfile:
-    global LATEST_PROFILE
-    LATEST_PROFILE = profile
+    mock_state.save_explore_profile(profile)
     return profile
 
 
 @router.post("/generate-result", response_model=ExploreResult)
 def generate_result(profile: ExploreProfile | None = None) -> ExploreResult:
-    return ai_service.generate_explore_result(profile or LATEST_PROFILE)
+    # 若带画像则先持久化;生成方向推荐(当前 mock)并入缓存,刷新/聚合页纯读不重构造。
+    if profile is not None:
+        mock_state.save_explore_profile(profile)
+    return ai_service.generate_explore_result(profile)
 
 
 @router.post("/save-path", response_model=CurrentPathResponse)
@@ -49,4 +49,4 @@ def save_path(payload: SavePathRequest) -> CurrentPathResponse:
 
 @router.get("/current-path", response_model=CurrentPathResponse)
 def current_path() -> CurrentPathResponse:
-    return mock_state.CURRENT_PATH
+    return mock_state.get_current_path()
