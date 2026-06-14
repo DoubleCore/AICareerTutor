@@ -13,7 +13,7 @@ _APPS_API_DIR = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables / .env."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_APPS_API_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
 
     # App metadata
     app_name: str = "AI Career Tutor API"
