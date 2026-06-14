@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.schemas.common import StatusResponse
-from app.schemas.explore import CurrentPathResponse, ExploreProfile, ExploreResult, FollowupQuestion, SavePathRequest
+from app.schemas.explore import CurrentPathResponse, ExploreProfile, ExploreResult, FollowupRequest, FollowupResponse, SavePathRequest
 from app.services import ai_service, mock_state
 
 router = APIRouter()
@@ -21,11 +21,11 @@ def submit_experience(profile: ExploreProfile) -> StatusResponse:
     return StatusResponse(message="experience saved")
 
 
-@router.post("/followup", response_model=list[FollowupQuestion])
-def generate_followup(profile: ExploreProfile) -> list[FollowupQuestion]:
-    # 先持久化本次画像(核心收益:后续追问/结果都基于落库画像),再返回追问(当前 mock)。
-    mock_state.save_explore_profile(profile)
-    return ai_service.generate_followups(profile)
+@router.post("/followup", response_model=FollowupResponse)
+def generate_followup(payload: FollowupRequest) -> FollowupResponse:
+    # 多轮追问:持久化本次画像(后续结果基于落库画像),基于画像 + 已问历史生成下一题(或 done)。
+    mock_state.save_explore_profile(payload.profile)
+    return ai_service.generate_followup(payload.profile, payload.history)
 
 
 @router.post("/confirm", response_model=ExploreProfile)

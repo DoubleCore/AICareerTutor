@@ -1,6 +1,6 @@
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.schemas.explore import ExploreProfile, ExploreResult, FollowupQuestion
+from app.schemas.explore import ExploreProfile, ExploreResult, FollowupQuestion, FollowupResponse, FollowupTurn
 from app.schemas.interview import InterviewAnalysis, InterviewReport
 from app.services import mock_state
 from app.utils import prompts
@@ -8,27 +8,43 @@ from app.utils import prompts
 logger = get_logger("app.ai_service")
 
 
-def generate_followups(profile: ExploreProfile) -> list[FollowupQuestion]:
-    """AI 接入:动态追问生成 —— mock / real / 回退三分支,对称面试侧。不缓存(每次进 followup 屏新生成)。
+# 多轮追问硬上限:已问满 6 轮则强制结束(防模型不肯停)。前端也会兜一道。
+_FOLLOWUP_MAX_TURNS = 6
 
-    - mock(默认):走 mock_state.get_followups,零依赖零密钥。
-    - real:基于画像调真实模型(anthropic tool-use / openai JSON),按 FollowupQuestion 校验。
-    任何前置缺失(未配 key / SDK 不可用)或调用失败,都回退 mock,保证 followup 屏不空。
+
+def generate_followup(profile: ExploreProfile, history: list[FollowupTurn] | None = None) -> FollowupResponse:
+    """AI 接入:对话式多轮追问 —— 基于画像 + 已问历史生成「下一题」或判定结束(done)。
+
+    - 硬上限:已问满 _FOLLOWUP_MAX_TURNS 轮直接 done(防失控,即便模型不肯停)。
+    - mock(默认):走固定题库(mock_state.get_followups),按已问轮数取第 N 题;取完返回 done。
+    - real:基于画像 + 历史调真实模型(anthropic tool-use / openai JSON),产出单题或 done。
+    任何前置缺失(未配 key / SDK 不可用)或调用失败,都回退 mock,保证 followup 屏不卡死。
     """
-    if settings.ai_mode != "real":
-        return mock_state.get_followups(profile)
+    turns = history or []
+    if len(turns) >= _FOLLOWUP_MAX_TURNS:
+        return FollowupResponse(question=None, done=True)
 
-    if not settings.ai_api_key:
-        logger.warning("AI_MODE=real 但未配置 AI_API_KEY,回退 mock 追问")
-        return mock_state.get_followups(profile)
+    if settings.ai_mode != "real" or not settings.ai_api_key:
+        if settings.ai_mode == "real":
+            logger.warning("AI_MODE=real 但未配置 AI_API_KEY,回退 mock 追问")
+        return _mock_followup(profile, turns)
 
     try:
-        questions = _real_followups(profile)
-        logger.info("真实 LLM 追问生成成功(provider=%s, model=%s, 共 %d 题)", settings.ai_provider, settings.ai_model, len(questions))
-        return questions
+        resp = _real_followup(profile, turns)
+        logger.info("真实 LLM 追问生成成功(provider=%s, model=%s, 第 %d 轮, done=%s)", settings.ai_provider, settings.ai_model, len(turns) + 1, resp.done)
+        return resp
     except Exception as exc:  # noqa: BLE001 —— 任何失败都回退 mock,演示优先
         logger.warning("真实 LLM 追问生成失败,回退 mock:%s", exc)
-        return mock_state.get_followups(profile)
+        return _mock_followup(profile, turns)
+
+
+def _mock_followup(profile: ExploreProfile, turns: list[FollowupTurn]) -> FollowupResponse:
+    """mock 多轮:从固定题库按已问轮数取第 N 题;取完(题库耗尽)返回 done。"""
+    bank = mock_state.get_followups(profile)
+    idx = len(turns)
+    if idx >= len(bank):
+        return FollowupResponse(question=None, done=True)
+    return FollowupResponse(question=bank[idx], done=False)
 
 
 def generate_explore_result(profile: ExploreProfile | None = None) -> ExploreResult:
@@ -274,49 +290,52 @@ def _openai_analysis_payload(upload) -> dict:
 _EXPLORE_MAX_TOKENS = 4000
 
 
-def _real_followups(profile) -> list[FollowupQuestion]:
-    """AI 接入:按 ai_provider 分发产出追问。两条分支产出同一份 {"questions": [...]} payload,校验为 list[FollowupQuestion]。
+def _real_followup(profile, history: list[FollowupTurn]) -> FollowupResponse:
+    """AI 接入:按 ai_provider 分发产出「下一题或 done」。两条分支产出同一份 {question, done} payload,校验为 FollowupResponse。
 
     SDK 均在各自分支内延迟导入:mock 模式下即使未安装也不受影响。
     """
     if settings.ai_provider == "openai":
-        payload = _openai_followups_payload(profile)
+        payload = _openai_followup_payload(profile, history)
     else:
-        payload = _anthropic_followups_payload(profile)
+        payload = _anthropic_followup_payload(profile, history)
 
-    questions = payload.get("questions", [])
-    return [FollowupQuestion.model_validate(item) for item in questions]
+    # 模型给了问题就用问题(done 视为 False);否则按 done 结束。容错:question 缺失/为空 → done。
+    q = payload.get("question")
+    if q and q.get("question"):
+        return FollowupResponse(question=FollowupQuestion.model_validate(q), done=False)
+    return FollowupResponse(question=None, done=True)
 
 
-def _anthropic_followups_payload(profile) -> dict:
-    """官方 Claude:Anthropic SDK,tool-use 强制按 schema 输出追问。"""
+def _anthropic_followup_payload(profile, history: list[FollowupTurn]) -> dict:
+    """官方 Claude:Anthropic SDK,tool-use 强制按 schema 输出下一题或 done。"""
     import anthropic
 
-    user_prompt = prompts.build_followup_user_prompt(profile)
+    user_prompt = prompts.build_followup_user_prompt(profile, history)
     client = anthropic.Anthropic(api_key=settings.ai_api_key)
     tool = {
-        "name": "submit_followups",
-        "description": "提交基于画像的个性化动态追问(0-3 个)",
-        "input_schema": _followups_input_schema(),
+        "name": "submit_followup",
+        "description": "基于画像与历史提交下一个追问;信息足够或已达上限则 done=true、question 留空",
+        "input_schema": _followup_input_schema(),
     }
     response = client.messages.create(
         model=settings.ai_model,
         max_tokens=settings.ai_max_tokens,
         system=prompts.FOLLOWUP_SYSTEM_PROMPT,
         tools=[tool],
-        tool_choice={"type": "tool", "name": "submit_followups"},
+        tool_choice={"type": "tool", "name": "submit_followup"},
         messages=[{"role": "user", "content": user_prompt}],
     )
-    return _extract_tool_input(response, "submit_followups")
+    return _extract_tool_input(response, "submit_followup")
 
 
-def _openai_followups_payload(profile) -> dict:
-    """OpenAI 兼容端点(DeepSeek 等):JSON Output 模式产出追问。"""
+def _openai_followup_payload(profile, history: list[FollowupTurn]) -> dict:
+    """OpenAI 兼容端点(DeepSeek 等):JSON Output 模式产出下一题或 done。"""
     import json
 
     from openai import OpenAI
 
-    user_prompt = prompts.build_followup_json_prompt(profile)
+    user_prompt = prompts.build_followup_json_prompt(profile, history)
     client = OpenAI(api_key=settings.ai_api_key, base_url=settings.ai_base_url or None)
     response = client.chat.completions.create(
         model=settings.ai_model,
@@ -504,28 +523,26 @@ def _interview_analysis_input_schema() -> dict:
     }
 
 
-def _followups_input_schema() -> dict:
-    """FollowupQuestion 列表的 JSON Schema(camelCase,供 Claude tool-use 约束输出)。
+def _followup_input_schema() -> dict:
+    """单题追问的 JSON Schema(camelCase,供 Claude tool-use 约束输出)。
 
-    包一层 {"questions": [...]},每项含 id(短横线英文)+ question 文本。允许空列表(信息足够则不追问)。
+    {question: {id, question} | 省略, done: bool}。信息足够或达上限时 done=true 且不给 question。
     """
     return {
         "type": "object",
         "properties": {
-            "questions": {
-                "type": "array",
-                "description": "0-3 个个性化追问;信息足够则为空数组",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string", "description": "短横线英文 id,如 work-proof"},
-                        "question": {"type": "string", "description": "追问文本,不超过 40 个中文字符"},
-                    },
-                    "required": ["id", "question"],
+            "question": {
+                "type": "object",
+                "description": "下一个追问;若 done=true 可省略",
+                "properties": {
+                    "id": {"type": "string", "description": "短横线英文 id,如 work-proof"},
+                    "question": {"type": "string", "description": "追问文本,不超过 40 个中文字符"},
                 },
+                "required": ["id", "question"],
             },
+            "done": {"type": "boolean", "description": "信息已足够或已达上限则为 true(此时不给 question)"},
         },
-        "required": ["questions"],
+        "required": ["done"],
     }
 
 
