@@ -23,6 +23,17 @@ export type StatusResponse = {
   message: string;
 };
 
+// 多轮追问:每轮把画像 + 已问问答历史发回后端,后端返回下一题或 done。
+export type FollowupTurn = {
+  question: string;
+  answer: string;
+};
+
+export type FollowupResponse = {
+  question: FollowupQuestion | null; // null + done=true 表示结束
+  done: boolean;
+};
+
 // 真实 LLM 生成(followup / generate-result)可能超过默认 12s,给这两个调用单独放宽超时。
 const EXPLORE_AI_TIMEOUT_MS = 45000;
 
@@ -36,9 +47,9 @@ export function submitExperience(profile: ExploreProfile): Promise<StatusRespons
   return request<StatusResponse>("/explore/experience", { method: "POST", body: profile });
 }
 
-/** POST /explore/followup —— 生成追问问题(real 模式走 LLM,放宽超时)。 */
-export function generateFollowup(profile: ExploreProfile): Promise<FollowupQuestion[]> {
-  return request<FollowupQuestion[]>("/explore/followup", { method: "POST", body: profile, timeoutMs: EXPLORE_AI_TIMEOUT_MS });
+/** POST /explore/followup —— 多轮追问:传画像 + 已问历史,返回下一题或 done(real 模式走 LLM,放宽超时)。 */
+export function generateFollowup(profile: ExploreProfile, history: FollowupTurn[] = []): Promise<FollowupResponse> {
+  return request<FollowupResponse>("/explore/followup", { method: "POST", body: { profile, history }, timeoutMs: EXPLORE_AI_TIMEOUT_MS });
 }
 
 /** POST /explore/confirm —— 确认画像。 */

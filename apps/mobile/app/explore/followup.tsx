@@ -1,11 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Image, ImageSourcePropType, LayoutChangeEvent, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { ApiError } from "@/services/apiClient";
-import { generateFollowup } from "@/services/exploreApi";
+import { FollowupTurn, generateFollowup } from "@/services/exploreApi";
 import { useAppStore } from "@/store/useAppStore";
 import { ExploreProfile } from "@/types/domain";
 
@@ -199,42 +199,69 @@ function ChatMessage({ from, children }: { from: "ai" | "user"; children: React.
   );
 }
 
+const FOLLOWUP_MAX_TURNS = 6;
+
 export default function Followup() {
   const [ready, setReady] = useState(false);
-  const [index, setIndex] = useState(0);
   const [questionsSettled, setQuestionsSettled] = useState(false);
+  const [loadingNext, setLoadingNext] = useState(false);
   const [answer, setAnswer] = useState("");
   const [inputHeight, setInputHeight] = useState(minInputHeight);
   const [inputExpanded, setInputExpanded] = useState(false);
   const [answers, setAnswers] = useState<string[]>([]);
-  const [completingFollowup, setCompletingFollowup] = useState(false);
   const [showExit, setShowExit] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const recognitionRef = useRef<any>(null);
   const studyProgress = useRef(new Animated.Value(0.03)).current;
   const { profile, addFollowup } = useAppStore();
-  const initialFollowupCount = useRef(profile.followups.length).current;
 
   const followupPrompt = useMemo(() => buildFollowupPrompt(profile), [profile]);
 
-  // 本地离线兜底问题(后端不可用/超时/返回空时使用),逻辑同原 useMemo。
-  const localFallbackQuestions = useMemo(() => {
-    const missingSignals = [
-      profile.workTypes.length < 2,
-      profile.preferredStates.length < 2,
-      profile.experiences.length === 0,
-      profile.goal.includes("其他") || profile.constraints.includes("其他")
-    ].filter(Boolean).length;
+  // 多轮对话状态:questions 逐轮 push(每轮一题)、history 累积已问问答对、done 结束标志。
+  const [questions, setQuestions] = useState<{ id: string; question: string }[]>([]);
+  const [history, setHistory] = useState<FollowupTurn[]>([]);
+  const [done, setDone] = useState(false);
 
-    if (initialFollowupCount >= 3) return [];
-    const count = missingSignals > 0 ? Math.min(3, missingSignals + 1) : 2;
-    return createProfileAwareQuestions(profile).slice(0, count);
-  }, [followupPrompt, initialFollowupCount, profile]);
+  // 本地离线兜底:后端取不到题时用,作为首题来源(逐轮模式下只取首个)。
+  const localFallbackQuestions = useMemo(() => createProfileAwareQuestions(profile), [followupPrompt, profile]);
 
-  // 探索链路做实:问题源改为「后端 LLM 返回 ?? 本地兜底」。学习动画结束时拉后端,失败回退本地。
-  const [generatedQuestions, setGeneratedQuestions] = useState<{ id: string; question: string }[]>(localFallbackQuestions);
+  // 取下一题:基于当前 history 调后端。成功 push 新题(或置 done);失败/超时回退本地兜底或直接结束。
+  // inFlightRef:同步锁,防同一答案触发多次取题(setLoadingNext 是异步的,挡不住同一 tick 的重复点击)。
+  const inFlightRef = useRef(false);
+  const fetchNext = useCallback(
+    async (currentHistory: FollowupTurn[]) => {
+      if (inFlightRef.current) return;
+      if (currentHistory.length >= FOLLOWUP_MAX_TURNS) {
+        setDone(true);
+        return;
+      }
+      inFlightRef.current = true;
+      try {
+        const resp = await generateFollowup(useAppStore.getState().profile, currentHistory);
+        if (resp.done || !resp.question) {
+          setDone(true);
+        } else {
+          setQuestions((prev) => [...prev, resp.question!]);
+        }
+      } catch (err: unknown) {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[followup] 取下一题失败:", reason);
+        // 首题失败用本地兜底;非首题失败直接结束(不卡死)。
+        const fallback = localFallbackQuestions[currentHistory.length];
+        if (currentHistory.length === 0 && fallback) {
+          setQuestions([fallback]);
+        } else {
+          setDone(true);
+        }
+      } finally {
+        inFlightRef.current = false;
+      }
+    },
+    [localFallbackQuestions]
+  );
 
+  // 学习动画(进度条)—— 结束置 ready,触发首题拉取。
   useEffect(() => {
     studyProgress.setValue(0.03);
     const animation = Animated.sequence([
@@ -251,38 +278,29 @@ export default function Followup() {
     };
   }, [studyProgress]);
 
-  // 探索链路做实:挂载即提交画像并取后端 LLM 追问(独立 mount effect + cancelled 标志,对齐 result.tsx 可靠范式)。
-  // 成功用返回问题(空 = 信息已足够);失败/超时回退本地 localFallbackQuestions(已是初值)。settled 后决定是否跳 confirm。
+  // 首题拉取:动画结束(ready)后取第 1 题(history 为空)。只跑一次。
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
-    if (initialFollowupCount >= 3) {
-      setQuestionsSettled(true);
-      return;
-    }
-    generateFollowup(useAppStore.getState().profile)
-      .then((questions) => {
-        if (!cancelled) setGeneratedQuestions(questions.slice(0, 3));
-      })
-      .catch((err: unknown) => {
-        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
-        console.warn("[followup] 取后端追问失败,沿用本地追问:", reason);
-      })
-      .finally(() => {
-        if (!cancelled) setQuestionsSettled(true);
-      });
+    (async () => {
+      await fetchNext([]);
+      if (!cancelled) setQuestionsSettled(true);
+    })();
     return () => {
       cancelled = true;
     };
-  }, [initialFollowupCount]);
+  }, [ready, fetchNext]);
 
-  // 追问问题就绪后:若为空(后端判断信息已足够,或本地兜底也为空)→ 自动跳信息确认页。
+  // 对话结束(done):用户答完所有题、或后端判定信息已足够、或达上限 → 跳信息确认页。
+  // 若一题都没问出来(done 且 questions 为空)给一点缓冲文案时间;有问答则答完即跳。
   useEffect(() => {
-    if (!ready || !questionsSettled || completingFollowup || generatedQuestions.length > 0) return;
+    if (!done) return;
+    const noQuestions = questions.length === 0;
     const redirectTimer = setTimeout(() => {
       router.replace({ pathname: "/explore/confirm", params: { skipOrganizing: "1" } });
-    }, 1600);
+    }, noQuestions ? 1600 : 200);
     return () => clearTimeout(redirectTimer);
-  }, [ready, questionsSettled, completingFollowup, generatedQuestions.length]);
+  }, [done, questions.length]);
 
   useEffect(() => {
     return () => {
@@ -297,7 +315,7 @@ export default function Followup() {
   };
 
   const toggleVoiceInput = () => {
-    if (!questionsReady || generatedQuestions.length === 0) return;
+    if (!awaitingAnswer) return;
 
     if (isListening) {
       stopVoiceInput();
@@ -343,29 +361,35 @@ export default function Followup() {
 
   const send = () => {
     const trimmed = answer.trim();
-    if (!questionsReady || !trimmed || generatedQuestions.length === 0) return;
+    if (!awaitingAnswer || !trimmed) return;
     stopVoiceInput();
-    const isLastQuestion = index >= generatedQuestions.length - 1;
-    if (isLastQuestion) {
-      setCompletingFollowup(true);
-    }
+    const current = questions[questions.length - 1];
+    const nextHistory = [...history, { question: current.question, answer: trimmed }];
+
     addFollowup(trimmed);
-    setAnswers((current) => [...current, trimmed]);
+    setAnswers((prev) => [...prev, trimmed]);
+    setHistory(nextHistory);
     setAnswer("");
     setInputHeight(minInputHeight);
     setInputExpanded(false);
     setVoiceStatus("");
-    if (!isLastQuestion) {
-      setIndex(index + 1);
-    } else {
-      router.replace({ pathname: "/explore/confirm", params: { skipOrganizing: "0", fromFollowup: "1", t: String(Date.now()) } });
+
+    // 达上限 → 直接结束;否则取下一题(显示加载态)。
+    if (nextHistory.length >= FOLLOWUP_MAX_TURNS) {
+      setDone(true);
+      return;
     }
+    setLoadingNext(true);
+    fetchNext(nextHistory).finally(() => setLoadingNext(false));
   };
 
-  // 问题就绪 = 动画完成且后端追问已 settle(成功/失败/超时均算);未 settle 期间显示「正在生成」态。
+  // 问题就绪 = 动画完成且首题已 settle(成功/失败/超时均算);未 settle 期间显示「正在生成」态。
   const questionsReady = ready && questionsSettled;
-  const canSend = questionsReady && generatedQuestions.length > 0 && answer.trim().length > 0;
-  const showStudyCard = !completingFollowup && (!questionsReady || generatedQuestions.length === 0);
+  // 有未作答的题(questions 比 answers 多一个)且不在加载下一题 → 可作答。
+  const awaitingAnswer = questionsReady && !loadingNext && !done && questions.length > answers.length;
+  const canSend = awaitingAnswer && answer.trim().length > 0;
+  // 学习卡:首题就绪前 或 轮次间加载下一题时显示。
+  const showStudyCard = !done && (!questionsReady || (loadingNext && questions.length === answers.length));
 
   return (
     <>
@@ -385,10 +409,10 @@ export default function Followup() {
                   setAnswer(value);
                   setInputHeight(estimateInputHeight(value));
                 }}
-                editable={questionsReady && generatedQuestions.length > 0}
+                editable={awaitingAnswer}
                 multiline
                 onContentSizeChange={(event) => setInputHeight(Math.min(maxInputHeight, Math.max(minInputHeight, event.nativeEvent.contentSize.height)))}
-                placeholder={questionsReady && generatedQuestions.length > 0 ? "输入回答，也可以语音补充" : "AI 正在判断是否需要追问"}
+                placeholder={awaitingAnswer ? "输入回答，也可以语音补充" : "AI 正在判断是否需要追问"}
                 placeholderTextColor={colors.gray}
                 cursorColor={colors.primary}
                 selectionColor={colors.primary}
@@ -410,14 +434,14 @@ export default function Followup() {
         <Text style={styles.pageSubtitle}>我会根据你前面的回答，判断是否需要补充追问。</Text>
         {showStudyCard ? <ProfileStudyCard ready={questionsReady} progress={studyProgress} /> : null}
 
-        {!completingFollowup ? <ThinkingStatus ready={questionsReady} hasQuestions={generatedQuestions.length > 0} /> : null}
+        {!done ? <ThinkingStatus ready={questionsReady && !loadingNext} hasQuestions={questions.length > answers.length} /> : null}
 
-        {questionsReady && generatedQuestions.length > 0 && !completingFollowup ? (
+        {questions.length > 0 ? (
           <>
-            {generatedQuestions.slice(0, index + 1).map((question, questionIndex) => (
+            {questions.map((question, questionIndex) => (
               <View key={question.id} style={styles.thread}>
                 <ChatMessage from="ai">
-                  <Text style={styles.bubbleMeta}>补充问题 {questionIndex + 1}/{generatedQuestions.length}</Text>
+                  <Text style={styles.bubbleMeta}>补充问题 {questionIndex + 1}</Text>
                   <Text style={styles.bubbleTitle}>{question.question}</Text>
                 </ChatMessage>
                 {answers[questionIndex] ? (
@@ -442,10 +466,10 @@ export default function Followup() {
                 setAnswer(value);
                 setInputHeight(estimateInputHeight(value));
               }}
-              editable={questionsReady && generatedQuestions.length > 0}
+              editable={awaitingAnswer}
               multiline
               autoFocus
-              placeholder={questionsReady && generatedQuestions.length > 0 ? "输入你的回答，也可以补充更多经历细节" : "AI 正在判断是否需要追问"}
+              placeholder={awaitingAnswer ? "输入你的回答，也可以补充更多经历细节" : "AI 正在判断是否需要追问"}
               placeholderTextColor={colors.gray}
               cursorColor={colors.primary}
               selectionColor={colors.primary}

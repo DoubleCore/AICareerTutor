@@ -55,7 +55,7 @@ def test_explore():
     profile = {}
     call("post", "/explore/basic-profile", json=profile)
     call("post", "/explore/experience", json=profile)
-    call("post", "/explore/followup", json=profile)
+    call("post", "/explore/followup", json={"profile": profile, "history": []})
     call("post", "/explore/confirm", json=profile)
     call("post", "/explore/generate-result", json=profile)
     call("get", "/explore/current-path")
@@ -89,6 +89,21 @@ def _explore_ai_assertions(profile, dir_id):
     saved = client.post("/explore/save-path", json={"direction_id": dir_id}).json()
     saved_id = (saved.get("direction") or {}).get("id")
     _assert(f"save-path 存的方向 = 所选 id({dir_id})", saved_id == dir_id)
+
+    # 4) 多轮追问:空 history → 返回第 1 题(done=false,有 question)。
+    t0 = client.post("/explore/followup", json={"profile": profile, "history": []}).json()
+    _assert("followup 空 history → 返回第 1 题", t0.get("done") is False and bool(t0.get("question")))
+
+    # 5) 多轮追问:1 轮 history → 返回第 2 题,且与第 1 题不同。
+    t1 = client.post("/explore/followup", json={"profile": profile, "history": [{"question": "q1", "answer": "a1"}]}).json()
+    q1 = (t1.get("question") or {}).get("id")
+    q0 = (t0.get("question") or {}).get("id")
+    _assert("followup 1 轮 history → 返回下一题(与首题不同)", bool(q1) and q1 != q0)
+
+    # 6) 多轮追问:满 6 轮 history → done=true 且无 question(硬上限)。
+    h6 = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(6)]
+    t6 = client.post("/explore/followup", json={"profile": profile, "history": h6}).json()
+    _assert("followup 满 6 轮 → done=true 且无 question", t6.get("done") is True and not t6.get("question"))
 
 
 def _assert(label, ok):

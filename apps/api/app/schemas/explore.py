@@ -29,6 +29,29 @@ class FollowupQuestion(CamelModel):
     question: str
 
 
+# 多轮追问(对话式):每轮把画像 + 已问问答历史发回后端,后端生成下一题或判定结束。
+# 状态在前端(无状态后端,符合 P0 进程内架构);history 只活在 followup 屏,不入库。
+class FollowupTurn(CamelModel):
+    """一轮已问答(问题文本 + 用户回答),作为生成下一题的上下文。"""
+
+    question: str
+    answer: str
+
+
+class FollowupRequest(CamelModel):
+    """多轮追问请求:当前画像 + 已问问答历史(首轮 history 为空)。"""
+
+    profile: ExploreProfile
+    history: list[FollowupTurn] = Field(default_factory=list)
+
+
+class FollowupResponse(CamelModel):
+    """多轮追问响应:下一题(question)或结束(done=True 且 question 为 None)。"""
+
+    question: FollowupQuestion | None = None
+    done: bool = False
+
+
 class ExploreTask(CamelModel):
     id: str
     title: str

@@ -233,40 +233,55 @@ def build_explore_json_prompt(profile) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AI 接入:动态追问(/followup)。基于画像生成 2-3 个个性化追问。
-# 与方向推荐分开:追问更轻量、不缓存(每次进 followup 屏新生成)。
+# AI 接入:动态追问(/followup)—— 对话式多轮。每轮把画像 + 已问问答历史发回,
+# 后端基于历史生成「下一个」最有价值的追问;信息足够或达上限则返回 done。
 # ---------------------------------------------------------------------------
 FOLLOWUP_SYSTEM_PROMPT = (
-    "你是一位温和、敏锐的 AI 职业探索教练。用户会提供一份已填写的自我画像。"
-    "请先学习画像,再只提出必要的动态追问,通过工具调用返回结构化结果。\n"
+    "你是一位温和、敏锐的 AI 职业探索教练,正在与用户进行多轮对话式追问。"
+    "用户会提供一份自我画像,以及到目前为止已经问过的问答历史。"
+    "请基于画像 + 历史,生成**下一个**最有价值的追问,通过工具调用返回结构化结果。\n"
     "要求:\n"
-    "1. 不重复询问画像里已经明确的信息。\n"
+    "1. 只问一个问题,且绝不重复历史里已问过的内容;要顺着用户已有回答继续深入。\n"
     "2. 优先追问能帮助判断职业方向的证据,例如成就感来源、可迁移能力、现实约束边界。\n"
-    "3. 每个问题只问一件事,语气像自然对话,不要像表格问卷;单个问题不超过 40 个中文字符。\n"
-    "4. 最多返回 3 个问题;若画像信息已足够,返回空列表(questions 为 [])。\n"
-    "5. 所有文案使用简体中文。每个问题含短横线英文 id(如 work-proof)与 question 文本。"
+    "3. 语气像自然对话,单个问题不超过 40 个中文字符。\n"
+    "4. 若画像信息已足够、或已问满 6 轮,则返回 done=true 且不再给问题(question 留空)。\n"
+    "5. 所有文案使用简体中文。问题含短横线英文 id(如 work-proof)与 question 文本。"
 )
 
 
-def build_followup_user_prompt(profile) -> str:
-    """anthropic 分支用 —— 复用探索画像输入格式,改尾句。"""
-    base = build_explore_user_prompt(profile)
-    return base.replace("请据此生成结构化的职业方向推荐结果。", "请据此判断是否需要继续追问,并生成必要的个性化追问。")
+def _format_followup_history(history) -> str:
+    """把已问问答历史拼成可读文本;空则标注「(尚未开始追问)」。history 为 FollowupTurn 列表。"""
+    if not history:
+        return "(尚未开始追问)"
+    lines = []
+    for i, turn in enumerate(history, 1):
+        lines.append(f"第{i}轮 问:{turn.question}\n第{i}轮 答:{turn.answer}")
+    return "\n".join(lines)
+
+
+def build_followup_user_prompt(profile, history) -> str:
+    """anthropic 分支用 —— 复用探索画像输入格式,附加已问问答历史 + 轮次提示。"""
+    base = build_explore_user_prompt(profile).replace("请据此生成结构化的职业方向推荐结果。", "")
+    return (
+        f"{base}"
+        f"已问问答历史(共 {len(history)} 轮):\n{_format_followup_history(history)}\n\n"
+        "请基于以上画像与历史,生成下一个追问;若信息已足够或已问满 6 轮,返回 done=true。"
+    )
 
 
 _FOLLOWUP_JSON_EXAMPLE = """{
-  "questions": [
-    {"id": "work-proof", "question": "你提到的这些事里,哪一类最让你有成就感?"}
-  ]
+  "question": {"id": "work-proof", "question": "你提到的这些事里,哪一类最让你有成就感?"},
+  "done": false
 }"""
 
 
-def build_followup_json_prompt(profile) -> str:
-    """openai provider(JSON Output 模式)专用 —— 基础输入后追加「只输出 json + 结构示例」。"""
-    base = build_followup_user_prompt(profile)
+def build_followup_json_prompt(profile, history) -> str:
+    """openai provider(JSON Output 模式)专用 —— 基础输入 + 历史后追加「只输出 json + 结构示例」。"""
+    base = build_followup_user_prompt(profile, history)
     return (
         f"{base}\n\n"
         "请只输出一个合法的 json 对象,不要任何额外文字或 markdown 代码块。"
-        "字段严格按下面的示例(questions 0-3 个,每个含短横线英文 id 与 question;信息足够则 questions 为 []):\n"
+        "字段严格按下面的示例(question 含短横线英文 id 与 question 文本;"
+        "若信息足够或已问满 6 轮,done 为 true 且 question 为 null):\n"
         f"{_FOLLOWUP_JSON_EXAMPLE}"
     )
