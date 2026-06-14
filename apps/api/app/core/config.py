@@ -13,7 +13,12 @@ _APPS_API_DIR = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables / .env."""
 
-    model_config = SettingsConfigDict(env_file=_APPS_API_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
+    # env_file 用绝对路径锚定 apps/api/.env,不随进程 cwd 漂移。
+    # npm run api 从仓库根启动(--app-dir apps/api),相对 ".env" 会去根目录找而读不到,
+    # 故与 database_url 一样用 _APPS_API_DIR 锚定。
+    model_config = SettingsConfigDict(
+        env_file=str(_APPS_API_DIR / ".env"), env_file_encoding="utf-8", extra="ignore"
+    )
 
     # App metadata
     app_name: str = "AI Career Tutor API"
