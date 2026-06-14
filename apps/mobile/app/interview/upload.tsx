@@ -14,20 +14,23 @@ const textInputFocusStyle = Platform.OS === "web" ? ({ outlineStyle: "none" } as
 
 export default function InterviewUpload() {
   const [showExit, setShowExit] = useState(false);
-  const [selected, setSelected] = useState(false);
+  // P1:真实文件名(选中 txt 后回填),空串表示未选择文件。取代原来写死的假状态。
+  const [fileName, setFileName] = useState("");
+  const [fileError, setFileError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [jobTitle, setJobTitle] = useState("AI产品经理");
   const [company, setCompany] = useState("字节跳动");
   const [jd, setJd] = useState("负责 AI 产品需求分析、方案设计、跨团队协作和项目落地。");
-  const [transcript, setTranscript] = useState("面试中主要讲述了一段校园产品项目经历，但个人贡献和结果量化表达不够清晰。");
-  const canSubmit = selected || transcript.trim().length > 0;
+  const [transcript, setTranscript] = useState("");
+  const pickFile = useFilePicker({ setFileName, setFileError, setTranscript });
+  const canSubmit = transcript.trim().length > 0;
 
   // P1-04:真实提交上传,拿到后端生成的 sessionId 并透传给分析页;失败回退 mock-session 保证演示不中断。
   const handleStart = async () => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const { sessionId } = await uploadInterview({ jobTitle, company, jd, transcript });
+      const { sessionId } = await uploadInterview({ fileName: fileName || undefined, jobTitle, company, jd, transcript });
       router.push(`/interview/analyzing?sessionId=${encodeURIComponent(sessionId)}`);
     } catch (err: unknown) {
       const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
@@ -58,7 +61,7 @@ export default function InterviewUpload() {
           <Text style={styles.subtitle}>上传面试录音、转录文本或你的面试记录，AI 会结合岗位要求帮你生成复盘报告。</Text>
         </View>
 
-        <UploadPanel selected={selected} onPress={() => setSelected(true)} />
+        <UploadPanel fileName={fileName} fileError={fileError} onPress={pickFile} />
 
         <View style={styles.formCard}>
           <View style={styles.cardHeader}>
@@ -82,7 +85,8 @@ export default function InterviewUpload() {
   );
 }
 
-function UploadPanel({ selected, onPress }: { selected: boolean; onPress: () => void }) {
+function UploadPanel({ fileName, fileError, onPress }: { fileName: string; fileError: string; onPress: () => void }) {
+  const selected = fileName.length > 0;
   return (
     <View style={styles.uploadShell}>
       <Pressable onPress={onPress} style={[styles.uploadDropzone, selected ? styles.uploadDropzoneSelected : null]}>
@@ -91,16 +95,23 @@ function UploadPanel({ selected, onPress }: { selected: boolean; onPress: () => 
           <View style={styles.cloudSparkTwo} />
           <Image source={uploadIcon} style={styles.uploadIconImage} resizeMode="contain" />
         </View>
-        <Text style={[styles.uploadTitle, selected ? styles.uploadTitleSelected : null]}>{selected ? "已选择 mock_interview_note.txt" : "上传音频或文本"}</Text>
-        <Text style={styles.uploadSubtitle}>( 支持 MP3、WAV、M4A、TXT、DOCX、PDF )</Text>
+        <Text style={[styles.uploadTitle, selected ? styles.uploadTitleSelected : null]} numberOfLines={1}>{selected ? `已选择 ${fileName}` : "上传文本文件"}</Text>
+        <Text style={styles.uploadSubtitle}>( 仅支持 TXT 文本,内容会填入下方文本框 )</Text>
         <View style={styles.fileButton}>
           <MaterialIcons name="folder-open" size={24} color="#fff" />
           <Text style={styles.fileButtonText}>{selected ? "重新选择文件" : "选择文件"}</Text>
         </View>
-        <View style={styles.privacyLine}>
-          <MaterialIcons name="verified-user" size={17} color="#8B96AA" />
-          <Text style={styles.privacyText}>文件仅用于本次复盘分析，严格保密</Text>
-        </View>
+        {fileError ? (
+          <View style={styles.privacyLine}>
+            <MaterialIcons name="error-outline" size={17} color="#E5484D" />
+            <Text style={[styles.privacyText, { color: "#E5484D" }]}>{fileError}</Text>
+          </View>
+        ) : (
+          <View style={styles.privacyLine}>
+            <MaterialIcons name="verified-user" size={17} color="#8B96AA" />
+            <Text style={styles.privacyText}>文件仅用于本次复盘分析，严格保密</Text>
+          </View>
+        )}
       </Pressable>
     </View>
   );
@@ -123,6 +134,59 @@ function StartButton({ enabled, onPress }: { enabled: boolean; onPress: () => vo
       {!enabled ? <Text style={styles.startButtonSubtext}>请先上传面试相关资料（必填）</Text> : null}
     </Pressable>
   );
+}
+
+/**
+ * 文件选择(P1:真实读取,取代原来的假 selected 状态)。
+ * - web:用隐藏的原生 <input type="file"> 触发系统选择框,FileReader 读为纯文本回填 transcript。
+ *   仅接受 .txt(纯文本零依赖、最稳);其它类型给出明确提示,不进入"已选择"。
+ * - 非 web(真机 Expo Go):暂未接 expo-document-picker,提示用户直接粘贴文本。
+ */
+function useFilePicker({ setFileName, setFileError, setTranscript }: { setFileName: (v: string) => void; setFileError: (v: string) => void; setTranscript: (v: string) => void }) {
+  if (Platform.OS !== "web") {
+    return () => setFileError("当前平台暂不支持选文件,请直接在下方粘贴面试文本。");
+  }
+
+  return () => {
+    // 每次点击创建一次性 input,读完即从 DOM 移除 —— 避免常驻 input 被反复捕获。
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt,text/plain";
+    input.style.display = "none";
+    const cleanup = () => input.remove();
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) {
+        cleanup();
+        return;
+      }
+      const isTxt = file.name.toLowerCase().endsWith(".txt") || file.type === "text/plain";
+      if (!isTxt) {
+        setFileError("暂仅支持 TXT 文本文件,其它格式请粘贴文本。");
+        cleanup();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === "string" ? reader.result : "";
+        if (!text.trim()) {
+          setFileError("文件内容为空,请换一个文件或直接粘贴。");
+        } else {
+          setFileError("");
+          setFileName(file.name);
+          setTranscript(text);
+        }
+        cleanup();
+      };
+      reader.onerror = () => {
+        setFileError("读取文件失败,请重试或直接粘贴文本。");
+        cleanup();
+      };
+      reader.readAsText(file, "utf-8");
+    });
+    document.body.appendChild(input);
+    input.click();
+  };
 }
 
 const styles = StyleSheet.create({
