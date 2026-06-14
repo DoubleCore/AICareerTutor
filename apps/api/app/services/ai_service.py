@@ -9,11 +9,52 @@ logger = get_logger("app.ai_service")
 
 
 def generate_followups(profile: ExploreProfile) -> list[FollowupQuestion]:
-    return mock_state.get_followups(profile)
+    """AI 接入:动态追问生成 —— mock / real / 回退三分支,对称面试侧。不缓存(每次进 followup 屏新生成)。
+
+    - mock(默认):走 mock_state.get_followups,零依赖零密钥。
+    - real:基于画像调真实模型(anthropic tool-use / openai JSON),按 FollowupQuestion 校验。
+    任何前置缺失(未配 key / SDK 不可用)或调用失败,都回退 mock,保证 followup 屏不空。
+    """
+    if settings.ai_mode != "real":
+        return mock_state.get_followups(profile)
+
+    if not settings.ai_api_key:
+        logger.warning("AI_MODE=real 但未配置 AI_API_KEY,回退 mock 追问")
+        return mock_state.get_followups(profile)
+
+    try:
+        questions = _real_followups(profile)
+        logger.info("真实 LLM 追问生成成功(provider=%s, model=%s, 共 %d 题)", settings.ai_provider, settings.ai_model, len(questions))
+        return questions
+    except Exception as exc:  # noqa: BLE001 —— 任何失败都回退 mock,演示优先
+        logger.warning("真实 LLM 追问生成失败,回退 mock:%s", exc)
+        return mock_state.get_followups(profile)
 
 
-def generate_explore_result(_: ExploreProfile | None = None) -> ExploreResult:
-    return mock_state.get_explore_result()
+def generate_explore_result(profile: ExploreProfile | None = None) -> ExploreResult:
+    """AI 接入:方向推荐生成 —— peek 缓存命中即返回(纯读不烧 LLM),未命中再 mock / real / 回退生成。
+
+    - 命中缓存:直接返回(刷新/聚合页不重生成,real 模式下避免重复烧 LLM)。
+    - 未命中:mock 或缺 key → build_mock + save;real → 基于画像调真实模型,成功 save,失败回退 mock + save。
+    画像来源:路由传入则用之,否则读已落库画像(mock_state.get_explore_profile)。
+    """
+    cached = mock_state.peek_explore_result()
+    if cached is not None:
+        return cached
+
+    if settings.ai_mode != "real" or not settings.ai_api_key:
+        if settings.ai_mode == "real":
+            logger.warning("AI_MODE=real 但未配置 AI_API_KEY,回退 mock 方向推荐")
+        return mock_state.save_explore_result(mock_state.build_mock_explore_result())
+
+    resolved = profile if profile is not None else mock_state.get_explore_profile()
+    try:
+        result = _real_explore_result(resolved)
+        logger.info("真实 LLM 方向推荐生成成功(provider=%s, model=%s)", settings.ai_provider, settings.ai_model)
+        return mock_state.save_explore_result(result)
+    except Exception as exc:  # noqa: BLE001 —— 任何失败都回退 mock,演示优先
+        logger.warning("真实 LLM 方向推荐生成失败,回退 mock:%s", exc)
+        return mock_state.save_explore_result(mock_state.build_mock_explore_result())
 
 
 def run_analysis(session_id: str) -> InterviewReport:
@@ -228,6 +269,129 @@ def _openai_analysis_payload(upload) -> dict:
     return json.loads(content)
 
 
+# 探索方向推荐结果体量较大(2-3 个方向 × 嵌套 portrait/weeklyTasks/abilitiesToBuild),
+# 给一个更大的 max_tokens,避免默认 2000 截断导致 JSON 不完整。
+_EXPLORE_MAX_TOKENS = 4000
+
+
+def _real_followups(profile) -> list[FollowupQuestion]:
+    """AI 接入:按 ai_provider 分发产出追问。两条分支产出同一份 {"questions": [...]} payload,校验为 list[FollowupQuestion]。
+
+    SDK 均在各自分支内延迟导入:mock 模式下即使未安装也不受影响。
+    """
+    if settings.ai_provider == "openai":
+        payload = _openai_followups_payload(profile)
+    else:
+        payload = _anthropic_followups_payload(profile)
+
+    questions = payload.get("questions", [])
+    return [FollowupQuestion.model_validate(item) for item in questions]
+
+
+def _anthropic_followups_payload(profile) -> dict:
+    """官方 Claude:Anthropic SDK,tool-use 强制按 schema 输出追问。"""
+    import anthropic
+
+    user_prompt = prompts.build_followup_user_prompt(profile)
+    client = anthropic.Anthropic(api_key=settings.ai_api_key)
+    tool = {
+        "name": "submit_followups",
+        "description": "提交基于画像的个性化动态追问(0-3 个)",
+        "input_schema": _followups_input_schema(),
+    }
+    response = client.messages.create(
+        model=settings.ai_model,
+        max_tokens=settings.ai_max_tokens,
+        system=prompts.FOLLOWUP_SYSTEM_PROMPT,
+        tools=[tool],
+        tool_choice={"type": "tool", "name": "submit_followups"},
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    return _extract_tool_input(response, "submit_followups")
+
+
+def _openai_followups_payload(profile) -> dict:
+    """OpenAI 兼容端点(DeepSeek 等):JSON Output 模式产出追问。"""
+    import json
+
+    from openai import OpenAI
+
+    user_prompt = prompts.build_followup_json_prompt(profile)
+    client = OpenAI(api_key=settings.ai_api_key, base_url=settings.ai_base_url or None)
+    response = client.chat.completions.create(
+        model=settings.ai_model,
+        max_tokens=settings.ai_max_tokens,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": prompts.FOLLOWUP_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    content = response.choices[0].message.content
+    if not content or not content.strip():
+        raise ValueError("模型返回空内容(JSON Output 模式偶发,可重试或调整 prompt)")
+    return json.loads(content)
+
+
+def _real_explore_result(profile) -> ExploreResult:
+    """AI 接入:按 ai_provider 分发产出方向推荐。两条分支产出同一份 camelCase payload,校验为 ExploreResult。
+
+    ExploreResult 无服务端权威字段(不像报告有 session_id),payload 直接校验。
+    SDK 均在各自分支内延迟导入:mock 模式下即使未安装也不受影响。
+    """
+    if settings.ai_provider == "openai":
+        payload = _openai_explore_payload(profile)
+    else:
+        payload = _anthropic_explore_payload(profile)
+
+    return ExploreResult.model_validate(payload)
+
+
+def _anthropic_explore_payload(profile) -> dict:
+    """官方 Claude:Anthropic SDK,tool-use 强制按 schema 输出方向推荐。"""
+    import anthropic
+
+    user_prompt = prompts.build_explore_user_prompt(profile)
+    client = anthropic.Anthropic(api_key=settings.ai_api_key)
+    tool = {
+        "name": "submit_explore_result",
+        "description": "提交结构化的中文职业方向推荐结果",
+        "input_schema": _explore_result_input_schema(),
+    }
+    response = client.messages.create(
+        model=settings.ai_model,
+        max_tokens=_EXPLORE_MAX_TOKENS,
+        system=prompts.EXPLORE_SYSTEM_PROMPT,
+        tools=[tool],
+        tool_choice={"type": "tool", "name": "submit_explore_result"},
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    return _extract_tool_input(response, "submit_explore_result")
+
+
+def _openai_explore_payload(profile) -> dict:
+    """OpenAI 兼容端点(DeepSeek 等):JSON Output 模式产出方向推荐(理由同报告侧,思考模型不支持强制 tool_choice)。"""
+    import json
+
+    from openai import OpenAI
+
+    user_prompt = prompts.build_explore_json_prompt(profile)
+    client = OpenAI(api_key=settings.ai_api_key, base_url=settings.ai_base_url or None)
+    response = client.chat.completions.create(
+        model=settings.ai_model,
+        max_tokens=_EXPLORE_MAX_TOKENS,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": prompts.EXPLORE_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    content = response.choices[0].message.content
+    if not content or not content.strip():
+        raise ValueError("模型返回空内容(JSON Output 模式偶发,可重试或调整 prompt)")
+    return json.loads(content)
+
+
 def _extract_tool_input(response, tool_name: str) -> dict:
     for block in response.content:
         if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
@@ -337,6 +501,99 @@ def _interview_analysis_input_schema() -> dict:
             },
         },
         "required": ["logic", "star", "interviewer", "risks"],
+    }
+
+
+def _followups_input_schema() -> dict:
+    """FollowupQuestion 列表的 JSON Schema(camelCase,供 Claude tool-use 约束输出)。
+
+    包一层 {"questions": [...]},每项含 id(短横线英文)+ question 文本。允许空列表(信息足够则不追问)。
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "description": "0-3 个个性化追问;信息足够则为空数组",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "短横线英文 id,如 work-proof"},
+                        "question": {"type": "string", "description": "追问文本,不超过 40 个中文字符"},
+                    },
+                    "required": ["id", "question"],
+                },
+            },
+        },
+        "required": ["questions"],
+    }
+
+
+def _explore_result_input_schema() -> dict:
+    """ExploreResult 的 JSON Schema(camelCase,供 Claude tool-use 约束输出)。
+
+    手写而非 model_json_schema():保持 prompt 精简、字段含义清晰。嵌套 directions(含 portrait /
+    whyFirst / abilitiesToBuild / weeklyTasks)+ transferableAbilities + notRecommended,对齐 schemas/explore.py。
+    """
+    str_array = {"type": "array", "items": {"type": "string"}}
+    direction_item = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "description": "短横线英文 id,如 ai-pm"},
+            "title": {"type": "string", "description": "中文方向名"},
+            "match": {"type": "string", "enum": ["高", "较高", "可尝试"]},
+            "reason": {"type": "string"},
+            "portrait": {
+                "type": "object",
+                "properties": {
+                    "dailyWork": str_array,
+                    "challenges": str_array,
+                    "abilities": str_array,
+                    "path": {"type": "string", "description": "发展路径一句话"},
+                },
+                "required": ["dailyWork", "challenges", "abilities", "path"],
+            },
+            "whyFirst": {"type": "array", "items": {"type": "string"}, "description": "为何先试 2-3 条"},
+            "abilitiesToBuild": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}, "description": {"type": "string"}},
+                    "required": ["title", "description"],
+                },
+            },
+            "weeklyTasks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "短横线英文 id"},
+                        "title": {"type": "string"},
+                        "status": {"type": "string", "enum": ["未开始", "进行中", "已完成"]},
+                    },
+                    "required": ["id", "title", "status"],
+                },
+            },
+        },
+        "required": ["id", "title", "match", "reason", "portrait", "whyFirst", "abilitiesToBuild", "weeklyTasks"],
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "conclusion": {"type": "string", "description": "一句话核心结论"},
+            "directions": {"type": "array", "items": direction_item, "description": "2-3 个推荐方向,匹配度从高到低"},
+            "transferableAbilities": {"type": "array", "items": {"type": "string"}, "description": "3-5 个可迁移能力(简短词组)"},
+            "notRecommended": {
+                "type": "array",
+                "description": "1-2 个当前不建议优先的方向",
+                "items": {
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}, "reason": {"type": "string"}},
+                    "required": ["title", "reason"],
+                },
+            },
+        },
+        "required": ["conclusion", "directions", "transferableAbilities", "notRecommended"],
     }
 
 

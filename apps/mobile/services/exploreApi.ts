@@ -23,6 +23,9 @@ export type StatusResponse = {
   message: string;
 };
 
+// 真实 LLM 生成(followup / generate-result)可能超过默认 12s,给这两个调用单独放宽超时。
+const EXPLORE_AI_TIMEOUT_MS = 45000;
+
 /** POST /explore/basic-profile —— 提交基础画像。 */
 export function submitBasicProfile(profile: ExploreProfile): Promise<StatusResponse> {
   return request<StatusResponse>("/explore/basic-profile", { method: "POST", body: profile });
@@ -33,9 +36,9 @@ export function submitExperience(profile: ExploreProfile): Promise<StatusRespons
   return request<StatusResponse>("/explore/experience", { method: "POST", body: profile });
 }
 
-/** POST /explore/followup —— 生成追问问题。 */
+/** POST /explore/followup —— 生成追问问题(real 模式走 LLM,放宽超时)。 */
 export function generateFollowup(profile: ExploreProfile): Promise<FollowupQuestion[]> {
-  return request<FollowupQuestion[]>("/explore/followup", { method: "POST", body: profile });
+  return request<FollowupQuestion[]>("/explore/followup", { method: "POST", body: profile, timeoutMs: EXPLORE_AI_TIMEOUT_MS });
 }
 
 /** POST /explore/confirm —— 确认画像。 */
@@ -43,9 +46,9 @@ export function confirmProfile(profile: ExploreProfile): Promise<ExploreProfile>
   return request<ExploreProfile>("/explore/confirm", { method: "POST", body: profile });
 }
 
-/** POST /explore/generate-result —— 生成方向推荐结果。 */
+/** POST /explore/generate-result —— 生成方向推荐结果(real 模式走 LLM,放宽超时)。 */
 export function generateExploreResult(profile?: ExploreProfile): Promise<ExploreResult> {
-  return request<ExploreResult>("/explore/generate-result", { method: "POST", body: profile });
+  return request<ExploreResult>("/explore/generate-result", { method: "POST", body: profile, timeoutMs: EXPLORE_AI_TIMEOUT_MS });
 }
 
 /** POST /explore/save-path —— 保存学习路径(后端接收 directionId,populate_by_name 兼容)。 */

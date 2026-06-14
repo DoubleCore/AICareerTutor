@@ -30,7 +30,9 @@ def generate_followup(profile: ExploreProfile) -> list[FollowupQuestion]:
 
 @router.post("/confirm", response_model=ExploreProfile)
 def confirm_profile(profile: ExploreProfile) -> ExploreProfile:
+    # 画像确认即落库,并失效旧的方向推荐缓存 —— 画像可能已变更,下次 generate-result 重新生成(real 模式基于最新画像重算)。
     mock_state.save_explore_profile(profile)
+    mock_state.clear_explore_result()
     return profile
 
 

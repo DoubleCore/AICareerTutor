@@ -202,6 +202,7 @@ function ChatMessage({ from, children }: { from: "ai" | "user"; children: React.
 export default function Followup() {
   const [ready, setReady] = useState(false);
   const [index, setIndex] = useState(0);
+  const [questionsSettled, setQuestionsSettled] = useState(false);
   const [answer, setAnswer] = useState("");
   const [inputHeight, setInputHeight] = useState(minInputHeight);
   const [inputExpanded, setInputExpanded] = useState(false);
@@ -217,7 +218,8 @@ export default function Followup() {
 
   const followupPrompt = useMemo(() => buildFollowupPrompt(profile), [profile]);
 
-  const generatedQuestions = useMemo(() => {
+  // 本地离线兜底问题(后端不可用/超时/返回空时使用),逻辑同原 useMemo。
+  const localFallbackQuestions = useMemo(() => {
     const missingSignals = [
       profile.workTypes.length < 2,
       profile.preferredStates.length < 2,
@@ -230,8 +232,10 @@ export default function Followup() {
     return createProfileAwareQuestions(profile).slice(0, count);
   }, [followupPrompt, initialFollowupCount, profile]);
 
+  // 探索链路做实:问题源改为「后端 LLM 返回 ?? 本地兜底」。学习动画结束时拉后端,失败回退本地。
+  const [generatedQuestions, setGeneratedQuestions] = useState<{ id: string; question: string }[]>(localFallbackQuestions);
+
   useEffect(() => {
-    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
     studyProgress.setValue(0.03);
     const animation = Animated.sequence([
       Animated.timing(studyProgress, { toValue: 0.28, duration: 900, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }),
@@ -240,25 +244,45 @@ export default function Followup() {
       Animated.timing(studyProgress, { toValue: 1, duration: 750, easing: Easing.out(Easing.cubic), useNativeDriver: false })
     ]);
     animation.start(({ finished }) => {
-      if (!finished) return;
-      setReady(true);
-      // 探索链路做实:学习动画结束即把画像提交后端落库(核心收益:后续结果基于落库画像)。
-      // 问题文案仍用客户端 generatedQuestions 作离线来源(后端当前为通用 mock);失败 console.warn 不中断。
-      generateFollowup(useAppStore.getState().profile).catch((err: unknown) => {
-        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
-        console.warn("[followup] 提交画像/取追问失败,沿用本地追问:", reason);
-      });
-      if (generatedQuestions.length === 0 && !completingFollowup) {
-        redirectTimer = setTimeout(() => {
-          router.replace({ pathname: "/explore/confirm", params: { skipOrganizing: "1" } });
-        }, 1600);
-      }
+      if (finished) setReady(true);
     });
     return () => {
       animation.stop();
-      if (redirectTimer) clearTimeout(redirectTimer);
     };
-  }, [completingFollowup, generatedQuestions.length, studyProgress]);
+  }, [studyProgress]);
+
+  // 探索链路做实:挂载即提交画像并取后端 LLM 追问(独立 mount effect + cancelled 标志,对齐 result.tsx 可靠范式)。
+  // 成功用返回问题(空 = 信息已足够);失败/超时回退本地 localFallbackQuestions(已是初值)。settled 后决定是否跳 confirm。
+  useEffect(() => {
+    let cancelled = false;
+    if (initialFollowupCount >= 3) {
+      setQuestionsSettled(true);
+      return;
+    }
+    generateFollowup(useAppStore.getState().profile)
+      .then((questions) => {
+        if (!cancelled) setGeneratedQuestions(questions.slice(0, 3));
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[followup] 取后端追问失败,沿用本地追问:", reason);
+      })
+      .finally(() => {
+        if (!cancelled) setQuestionsSettled(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialFollowupCount]);
+
+  // 追问问题就绪后:若为空(后端判断信息已足够,或本地兜底也为空)→ 自动跳信息确认页。
+  useEffect(() => {
+    if (!ready || !questionsSettled || completingFollowup || generatedQuestions.length > 0) return;
+    const redirectTimer = setTimeout(() => {
+      router.replace({ pathname: "/explore/confirm", params: { skipOrganizing: "1" } });
+    }, 1600);
+    return () => clearTimeout(redirectTimer);
+  }, [ready, questionsSettled, completingFollowup, generatedQuestions.length]);
 
   useEffect(() => {
     return () => {
@@ -273,7 +297,7 @@ export default function Followup() {
   };
 
   const toggleVoiceInput = () => {
-    if (!ready || generatedQuestions.length === 0) return;
+    if (!questionsReady || generatedQuestions.length === 0) return;
 
     if (isListening) {
       stopVoiceInput();
@@ -319,7 +343,7 @@ export default function Followup() {
 
   const send = () => {
     const trimmed = answer.trim();
-    if (!ready || !trimmed || generatedQuestions.length === 0) return;
+    if (!questionsReady || !trimmed || generatedQuestions.length === 0) return;
     stopVoiceInput();
     const isLastQuestion = index >= generatedQuestions.length - 1;
     if (isLastQuestion) {
@@ -338,8 +362,10 @@ export default function Followup() {
     }
   };
 
-  const canSend = ready && generatedQuestions.length > 0 && answer.trim().length > 0;
-  const showStudyCard = !completingFollowup && (!ready || generatedQuestions.length === 0);
+  // 问题就绪 = 动画完成且后端追问已 settle(成功/失败/超时均算);未 settle 期间显示「正在生成」态。
+  const questionsReady = ready && questionsSettled;
+  const canSend = questionsReady && generatedQuestions.length > 0 && answer.trim().length > 0;
+  const showStudyCard = !completingFollowup && (!questionsReady || generatedQuestions.length === 0);
 
   return (
     <>
@@ -359,10 +385,10 @@ export default function Followup() {
                   setAnswer(value);
                   setInputHeight(estimateInputHeight(value));
                 }}
-                editable={ready && generatedQuestions.length > 0}
+                editable={questionsReady && generatedQuestions.length > 0}
                 multiline
                 onContentSizeChange={(event) => setInputHeight(Math.min(maxInputHeight, Math.max(minInputHeight, event.nativeEvent.contentSize.height)))}
-                placeholder={ready && generatedQuestions.length > 0 ? "输入回答，也可以语音补充" : "AI 正在判断是否需要追问"}
+                placeholder={questionsReady && generatedQuestions.length > 0 ? "输入回答，也可以语音补充" : "AI 正在判断是否需要追问"}
                 placeholderTextColor={colors.gray}
                 cursorColor={colors.primary}
                 selectionColor={colors.primary}
@@ -382,11 +408,11 @@ export default function Followup() {
       >
         <Text style={styles.pageTitle}>动态深入了解</Text>
         <Text style={styles.pageSubtitle}>我会根据你前面的回答，判断是否需要补充追问。</Text>
-        {showStudyCard ? <ProfileStudyCard ready={ready} progress={studyProgress} /> : null}
+        {showStudyCard ? <ProfileStudyCard ready={questionsReady} progress={studyProgress} /> : null}
 
-        {!completingFollowup ? <ThinkingStatus ready={ready} hasQuestions={generatedQuestions.length > 0} /> : null}
+        {!completingFollowup ? <ThinkingStatus ready={questionsReady} hasQuestions={generatedQuestions.length > 0} /> : null}
 
-        {ready && generatedQuestions.length > 0 && !completingFollowup ? (
+        {questionsReady && generatedQuestions.length > 0 && !completingFollowup ? (
           <>
             {generatedQuestions.slice(0, index + 1).map((question, questionIndex) => (
               <View key={question.id} style={styles.thread}>
@@ -416,10 +442,10 @@ export default function Followup() {
                 setAnswer(value);
                 setInputHeight(estimateInputHeight(value));
               }}
-              editable={ready && generatedQuestions.length > 0}
+              editable={questionsReady && generatedQuestions.length > 0}
               multiline
               autoFocus
-              placeholder={ready && generatedQuestions.length > 0 ? "输入你的回答，也可以补充更多经历细节" : "AI 正在判断是否需要追问"}
+              placeholder={questionsReady && generatedQuestions.length > 0 ? "输入你的回答，也可以补充更多经历细节" : "AI 正在判断是否需要追问"}
               placeholderTextColor={colors.gray}
               cursorColor={colors.primary}
               selectionColor={colors.primary}

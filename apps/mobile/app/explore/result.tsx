@@ -119,25 +119,32 @@ function PortraitRow({ icon, color, label, value }: { icon: keyof typeof Materia
 }
 
 export default function ExploreResult() {
-  const { directions: storeDirections } = useAppStore();
+  const { directions: storeDirections, setDirections } = useAppStore();
   const [portrait, setPortrait] = useState<DirectionRecommendation | null>(null);
   const [apiResult, setApiResult] = useState<ExploreResultData | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // 探索链路做实:挂载时按当前画像拉后端方向推荐结果;失败回退 store/mock(对齐面试链路范式)。
+  // 探索链路做实:挂载时按当前画像拉后端方向推荐结果;成功则回写 store(让 path 屏拿到 AI 方向),
+  // 失败/超时回退 store/mock(对齐面试链路范式)。loading 控制「AI 生成中」加载态。
   useEffect(() => {
     let cancelled = false;
     generateExploreResult(useAppStore.getState().profile)
       .then((data) => {
-        if (!cancelled) setApiResult(data);
+        if (cancelled) return;
+        setApiResult(data);
+        if (data.directions.length > 0) setDirections(data.directions);
       })
       .catch((err: unknown) => {
         const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
         console.warn("[result] 拉取后端方向推荐失败,回退本地数据:", reason);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setDirections]);
 
   // apiResult 到达前用 store/常量兜底,演示不中断。
   const directions = apiResult?.directions ?? storeDirections;
@@ -159,6 +166,13 @@ export default function ExploreResult() {
           </View>
           <Text style={styles.resultSubtitle}>系统结合你的背景、兴趣、经历和现实约束，为你推荐以下方向</Text>
         </View>
+
+        {loading ? (
+          <View style={styles.loadingBanner}>
+            <MaterialIcons name="auto-awesome" size={18} color={colors.primary} />
+            <Text style={styles.loadingText}>AI 正在结合你的画像生成职业方向…</Text>
+          </View>
+        ) : null}
 
         <Card style={styles.aiCard}>
           <View style={styles.aiHeader}>
@@ -260,6 +274,24 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
     lineHeight: 22
+  },
+  loadingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#D6E4FF",
+    backgroundColor: "#F2F7FF"
+  },
+  loadingText: {
+    flex: 1,
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19
   },
   aiCard: {
     paddingTop: 12,
