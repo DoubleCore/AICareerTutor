@@ -24,3 +24,6 @@ __pycache__/
 # Expo CNG: generated native project (run `expo prebuild` to regenerate)
 apps/mobile/android/
 apps/mobile/ios/
+
+# Playwright MCP: local browser test artifacts (screenshots, console/network logs)
+.playwright-mcp/

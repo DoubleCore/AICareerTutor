@@ -1,9 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AppButton, Card, Screen, SegmentedTabs, StatusTag, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { getCurrentPath, saveExplorePath } from "@/services/exploreApi";
 import { useAppStore, useSelectedDirection } from "@/store/useAppStore";
 import { ExploreTask, TaskStatus } from "@/types/domain";
 
@@ -50,6 +52,26 @@ export default function ExplorePath() {
   const { directions, setSelectedDirection, saveCurrentPath } = useAppStore();
   const currentTasks = tasksByDirection[direction.id] ?? direction.weeklyTasks;
 
+  // 探索链路做实:挂载时拉后端已保存路径;命中则把该方向的任务状态水合进本地(刷新/重启后存活)。
+  // 失败 console.warn 回退本地默认(对齐范式)。
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentPath()
+      .then((path) => {
+        if (cancelled || !path.direction || path.tasks.length === 0) return;
+        setSelectedDirection(path.direction.id);
+        setTasksByDirection((state) => ({ ...state, [path.direction!.id]: path.tasks }));
+        setSaved(true);
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[path] 拉取已保存路径失败,使用本地默认:", reason);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setSelectedDirection]);
+
   const updateTaskStatus = (taskId: string) => {
     const sourceTasks = tasksByDirection[direction.id] ?? direction.weeklyTasks;
     setTasksByDirection((state) => ({
@@ -58,9 +80,14 @@ export default function ExplorePath() {
     }));
   };
 
+  // 探索链路做实:保存时把所选方向落库为路径快照(失败 console.warn 回退本地手感),并保留 store 同步。
   const save = () => {
     saveCurrentPath(currentTasks);
     setSaved(true);
+    saveExplorePath(direction.id).catch((err: unknown) => {
+      const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+      console.warn("[path] 保存路径到后端失败,已存本地:", reason);
+    });
   };
 
   return (

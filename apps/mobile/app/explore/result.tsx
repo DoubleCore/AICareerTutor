@@ -1,9 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Image, ImageSourcePropType, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton, BottomSheet, Card, Screen, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { ExploreResult as ExploreResultData, generateExploreResult } from "@/services/exploreApi";
 import { useAppStore } from "@/store/useAppStore";
 import { DirectionRecommendation } from "@/types/domain";
 
@@ -28,6 +30,20 @@ const abilities = [
   { title: "数据理解", icon: dataUnderstandingIcon },
   { title: "创意策划", icon: creativePlanningIcon }
 ] as const;
+
+// 探索链路做实:apiResult 到达前的兜底常量(与后端 build_mock_explore_result 内容一致)。
+const defaultConclusion = "你更适合兼顾逻辑分析与沟通协作的岗位，而不是高度封闭、纯技术导向的方向。";
+const defaultAbilityTitles = abilities.map((item) => item.title);
+const defaultNotRecommended = [
+  { title: "纯算法研发", reason: "该方向通常要求更强的数学、编程和长期技术积累，与你当前的经历与兴趣匹配度较低。" },
+  { title: "高度重复型执行岗位", reason: "你更适合有一定分析、表达或推动空间的岗位，而不是长期纯重复执行工作。" }
+];
+// 能力 title → 图标映射(后端返回的能力名按此取图标,缺省用默认图标)。
+const abilityIconByTitle: Record<string, ImageSourcePropType> = abilities.reduce(
+  (acc, item) => ({ ...acc, [item.title]: item.icon }),
+  {} as Record<string, ImageSourcePropType>
+);
+const defaultAbilityIcon = structuredExpressionIcon;
 
 const directionIcons = {
   "AI产品经理": { image: productManagerIcon },
@@ -103,8 +119,31 @@ function PortraitRow({ icon, color, label, value }: { icon: keyof typeof Materia
 }
 
 export default function ExploreResult() {
-  const { directions } = useAppStore();
+  const { directions: storeDirections } = useAppStore();
   const [portrait, setPortrait] = useState<DirectionRecommendation | null>(null);
+  const [apiResult, setApiResult] = useState<ExploreResultData | null>(null);
+
+  // 探索链路做实:挂载时按当前画像拉后端方向推荐结果;失败回退 store/mock(对齐面试链路范式)。
+  useEffect(() => {
+    let cancelled = false;
+    generateExploreResult(useAppStore.getState().profile)
+      .then((data) => {
+        if (!cancelled) setApiResult(data);
+      })
+      .catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[result] 拉取后端方向推荐失败,回退本地数据:", reason);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // apiResult 到达前用 store/常量兜底,演示不中断。
+  const directions = apiResult?.directions ?? storeDirections;
+  const conclusion = apiResult?.conclusion ?? defaultConclusion;
+  const transferableAbilities = apiResult?.transferableAbilities ?? defaultAbilityTitles;
+  const notRecommended = apiResult?.notRecommended ?? defaultNotRecommended;
 
   return (
     <>
@@ -128,7 +167,7 @@ export default function ExploreResult() {
             </View>
             <Text style={uiStyles.itemTitle}>AI 结论</Text>
           </View>
-          <Text style={styles.conclusion}>你更适合兼顾逻辑分析与沟通协作的岗位，而不是高度封闭、纯技术导向的方向。</Text>
+          <Text style={styles.conclusion}>{conclusion}</Text>
         </Card>
 
         <Card style={styles.recommendationCard}>
@@ -141,10 +180,10 @@ export default function ExploreResult() {
         <Card style={styles.resultSectionCard}>
           <SectionTitle icon={transferableAbilityIcon} title="你目前更明显的可迁移能力" />
           <View style={styles.abilityGrid}>
-            {abilities.map((ability) => (
-              <View key={ability.title} style={styles.abilityItem}>
-                <Image source={ability.icon} style={styles.abilityIconImage} resizeMode="contain" />
-                <Text style={styles.abilityText}>{ability.title}</Text>
+            {transferableAbilities.map((ability) => (
+              <View key={ability} style={styles.abilityItem}>
+                <Image source={abilityIconByTitle[ability] ?? defaultAbilityIcon} style={styles.abilityIconImage} resizeMode="contain" />
+                <Text style={styles.abilityText}>{ability}</Text>
               </View>
             ))}
           </View>
@@ -153,30 +192,20 @@ export default function ExploreResult() {
 
         <Card style={styles.resultSectionCard}>
           <SectionTitle icon={notRecommendedIcon} title="当前不建议优先尝试的方向" />
-          <View style={styles.notRow}>
-            <View style={styles.grayIcon}>
-              <MaterialIcons name="code" size={24} color="#FFFFFF" />
-            </View>
-            <View style={styles.notContent}>
-              <View style={styles.notHeader}>
-                <Text style={styles.directionTitle}>纯算法研发</Text>
-                <Text style={styles.grayChip}>当前不建议优先尝试</Text>
+          {notRecommended.map((item, index) => (
+            <View key={item.title} style={styles.notRow}>
+              <View style={styles.grayIcon}>
+                <MaterialIcons name={index === 0 ? "code" : "format-list-bulleted"} size={24} color="#FFFFFF" />
               </View>
-              <Text style={uiStyles.muted}>该方向通常要求更强的数学、编程和长期技术积累，与你当前的经历与兴趣匹配度较低。</Text>
-            </View>
-          </View>
-          <View style={styles.notRow}>
-            <View style={styles.grayIcon}>
-              <MaterialIcons name="format-list-bulleted" size={24} color="#FFFFFF" />
-            </View>
-            <View style={styles.notContent}>
-              <View style={styles.notHeader}>
-                <Text style={styles.directionTitle}>高度重复型执行岗位</Text>
-                <Text style={styles.grayChip}>不建议长期优先投入</Text>
+              <View style={styles.notContent}>
+                <View style={styles.notHeader}>
+                  <Text style={styles.directionTitle}>{item.title}</Text>
+                  <Text style={styles.grayChip}>{index === 0 ? "当前不建议优先尝试" : "不建议长期优先投入"}</Text>
+                </View>
+                <Text style={uiStyles.muted}>{item.reason}</Text>
               </View>
-              <Text style={uiStyles.muted}>你更适合有一定分析、表达或推动空间的岗位，而不是长期纯重复执行工作。</Text>
             </View>
-          </View>
+          ))}
         </Card>
       </Screen>
 

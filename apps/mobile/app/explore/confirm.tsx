@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Image, ImageSourcePropType, LayoutChangeEvent, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { AppButton, ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { confirmProfile } from "@/services/exploreApi";
 import { useAppStore } from "@/store/useAppStore";
 import { ExploreProfile } from "@/types/domain";
 
@@ -164,6 +166,15 @@ export default function Confirm() {
     closeEdit();
   };
 
+  // 探索链路做实:确认时把最终画像提交后端落库(失败 console.warn 回退,不中断),再进结果页。
+  const confirmAndGenerate = () => {
+    confirmProfile(useAppStore.getState().profile).catch((err: unknown) => {
+      const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+      console.warn("[confirm] 确认画像失败,继续生成方向:", reason);
+    });
+    router.push("/explore/result");
+  };
+
   if (organizing) {
     return (
       <>
@@ -264,7 +275,7 @@ export default function Confirm() {
           </View>
         </View>
 
-        <AppButton title="确认并生成方向建议" onPress={() => router.push("/explore/result")} style={styles.confirmActionButton} />
+        <AppButton title="确认并生成方向建议" onPress={confirmAndGenerate} style={styles.confirmActionButton} />
       </Screen>
 
       <Modal visible={!!editing} transparent animationType="slide" onRequestClose={closeEdit}>

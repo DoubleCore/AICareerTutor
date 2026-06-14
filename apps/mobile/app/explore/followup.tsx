@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Image, ImageSourcePropType, LayoutChangeEvent, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
+import { ApiError } from "@/services/apiClient";
+import { generateFollowup } from "@/services/exploreApi";
 import { useAppStore } from "@/store/useAppStore";
 import { ExploreProfile } from "@/types/domain";
 
@@ -240,6 +242,12 @@ export default function Followup() {
     animation.start(({ finished }) => {
       if (!finished) return;
       setReady(true);
+      // 探索链路做实:学习动画结束即把画像提交后端落库(核心收益:后续结果基于落库画像)。
+      // 问题文案仍用客户端 generatedQuestions 作离线来源(后端当前为通用 mock);失败 console.warn 不中断。
+      generateFollowup(useAppStore.getState().profile).catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[followup] 提交画像/取追问失败,沿用本地追问:", reason);
+      });
       if (generatedQuestions.length === 0 && !completingFollowup) {
         redirectTimer = setTimeout(() => {
           router.replace({ pathname: "/explore/confirm", params: { skipOrganizing: "1" } });

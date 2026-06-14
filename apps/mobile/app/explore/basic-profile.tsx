@@ -4,6 +4,8 @@ import { Text, View } from "react-native";
 import { AppButton, ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { AIQuestionCard, CollectionHeader, ModernOptionSelector, ModernTextInput, NextHint, QuestionExplanation, QuestionPanel, SummarySheet } from "@/components/explore/ProfileCollectionUI";
 import { basicQuestions } from "@/data/mockData";
+import { ApiError } from "@/services/apiClient";
+import { submitBasicProfile } from "@/services/exploreApi";
 import { useAppStore } from "@/store/useAppStore";
 import { ExploreProfile } from "@/types/domain";
 
@@ -77,7 +79,15 @@ export default function BasicProfile() {
       }
     }
     if (index < basicQuestions.length - 1) setIndex(index + 1);
-    else router.push("/explore/experience");
+    else {
+      // 探索链路做实:末步把累积画像提交后端落库(失败 console.warn 回退,不中断演示)。
+      // 用 getState() 取最新 profile —— zustand set 同步,已含上面的「其他」转写。
+      submitBasicProfile(useAppStore.getState().profile).catch((err: unknown) => {
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[basic-profile] 提交画像失败,继续流程:", reason);
+      });
+      router.push("/explore/experience");
+    }
   };
 
   return (
