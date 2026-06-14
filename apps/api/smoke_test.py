@@ -66,6 +66,39 @@ def test_explore():
     except Exception:
         dir_id = "mock-direction"
     call("post", "/explore/save-path", json={"direction_id": dir_id})
+    _explore_ai_assertions(profile, dir_id)
+
+
+def _explore_ai_assertions(profile, dir_id):
+    """AI 接入新增断言:缓存命中(纯读不重构造)/ confirm 失效缓存 / save-path 用真实 id 存对方向。"""
+    global PASS, FAIL
+    print("\n----- EXPLORE AI 断言 -----")
+
+    # 1) generate-result 二次调用命中缓存:同一画像两次结果应完全一致(mock 也走 save/peek,内容稳定即视为命中)。
+    r1 = client.post("/explore/generate-result", json=profile).json()
+    r2 = client.post("/explore/generate-result", json=profile).json()
+    cache_hit = r1 == r2
+    _assert("generate-result 二次调用命中缓存(结果一致)", cache_hit)
+
+    # 2) /confirm 失效缓存:confirm 后再 generate-result 仍应成功返回(重新生成,不报错)。
+    client.post("/explore/confirm", json=profile)
+    r3 = client.post("/explore/generate-result", json=profile)
+    _assert("confirm 失效缓存后 generate-result 重新生成可达", r3.status_code == 200 and "directions" in r3.json())
+
+    # 3) save-path 用 generate-result 返回的真实 direction id,存的方向应正是所选方向(而非硬编码兜底)。
+    saved = client.post("/explore/save-path", json={"direction_id": dir_id}).json()
+    saved_id = (saved.get("direction") or {}).get("id")
+    _assert(f"save-path 存的方向 = 所选 id({dir_id})", saved_id == dir_id)
+
+
+def _assert(label, ok):
+    global PASS, FAIL
+    mark = "[OK]" if ok else "[FAIL]"
+    if ok:
+        PASS += 1
+    else:
+        FAIL += 1
+    print(f"{mark} {label}")
 
 
 def test_interview():

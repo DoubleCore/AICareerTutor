@@ -205,9 +205,41 @@ def get_explore_result(user_id: str = DEV_USER_ID) -> ExploreResult:
     return save_explore_result(build_mock_explore_result(), user_id)
 
 
+def peek_explore_result(user_id: str = DEV_USER_ID) -> ExploreResult | None:
+    """纯读方向推荐结果 —— 命中(有 result_json)还原,未命中返回 None(不构造、不落库)。
+
+    AI 接入:与 get_explore_result(get-or-create)区分。ai_service.generate_explore_result 先 peek,
+    命中即返回(real 模式下避免每次刷新重复烧 LLM);save_path 也用它取「真实生成的方向池」。
+    """
+    with Session(engine) as session:
+        row = session.get(ExploreResultRow, user_id)
+    if row is not None and row.result_json:
+        return ExploreResult.model_validate_json(row.result_json)
+    return None
+
+
+def clear_explore_result(user_id: str = DEV_USER_ID) -> None:
+    """失效方向推荐缓存(置 result_json=None)—— 供 /confirm 调用:画像已确认/可能变更,旧结果作废。
+
+    下次 generate-result 会重新生成(real 模式下基于最新画像重算)。行不存在则无操作。
+    """
+    with Session(engine) as session:
+        row = session.get(ExploreResultRow, user_id)
+        if row is not None:
+            row.result_json = None
+            session.add(row)
+            session.commit()
+
+
 def save_path(direction_id: str, user_id: str = DEV_USER_ID) -> CurrentPathResponse:
-    """保存学习路径 —— 按 direction_id 取方向 + 其 weekly_tasks 快照,落 CurrentPathRow(整列 JSON)。"""
-    direction = next((item for item in DIRECTIONS if item.id == direction_id), DIRECTIONS[0])
+    """保存学习路径 —— 按 direction_id 取方向 + 其 weekly_tasks 快照,落 CurrentPathRow(整列 JSON)。
+
+    AI 接入:方向池优先取「已生成的方向推荐结果」(peek_explore_result),使 real 模式下 LLM 产出的
+    新 direction_id 也能正确命中;无缓存结果时回退硬编码 DIRECTIONS。两者都查不到该 id 则取池首项。
+    """
+    cached = peek_explore_result(user_id)
+    pool = cached.directions if cached and cached.directions else DIRECTIONS
+    direction = next((item for item in pool if item.id == direction_id), pool[0])
     path = CurrentPathResponse(direction=direction, tasks=[task.model_copy() for task in direction.weekly_tasks])
     with Session(engine) as session:
         row = session.get(CurrentPathRow, user_id)

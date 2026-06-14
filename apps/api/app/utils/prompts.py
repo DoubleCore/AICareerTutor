@@ -1,4 +1,52 @@
-EXPLORE_SYSTEM_PROMPT = "Generate structured career exploration output for the P0 schema."
+# AI 接入:职业方向探索的真实 system prompt。要求模型扮演职业探索教练,
+# 基于用户画像(基础信息 + 兴趣偏好 + 经历 + 现实约束 + 追问回答)产出结构化方向推荐结果。
+# 所有面向用户的文案必须是简体中文。
+EXPLORE_SYSTEM_PROMPT = (
+    "你是一位资深的职业探索教练,擅长帮助求职者(尤其应届生、转行者)找到适合自己的职业方向。"
+    "用户会提供一份自我画像(当前阶段、学历、专业、兴趣、工作偏好、探索目标、现实约束、经历、做过的事、偏好状态、追问回答)。"
+    "请基于这些内容,给出一份客观、可执行的中文方向推荐结果,通过工具调用返回结构化结果。\n"
+    "要求:\n"
+    "1. 所有文案使用简体中文,语气温和、具体、鼓励但不浮夸,紧扣用户画像、不编造画像里没有的信息。\n"
+    "2. conclusion:一句话核心结论,概括用户更适合哪类岗位。\n"
+    "3. directions:推荐 2-3 个方向,按匹配度从高到低排列。每个方向含:\n"
+    "   - id:短横线英文 id(如 ai-pm / data-analyst);title:中文方向名;match 取 高/较高/可尝试 之一;\n"
+    "   - reason:为何匹配(结合画像);portrait:岗位画像(dailyWork 日常工作、challenges 常见挑战、abilities 所需能力 各 2-4 条,path 发展路径一句话);\n"
+    "   - whyFirst:为何建议先试这个方向 2-3 条;abilitiesToBuild:建议先补的能力 2-3 项,每项含 title + description;\n"
+    "   - weeklyTasks:本周可执行探索任务 3-4 个,每个含短横线英文 id、title,status 一律设为 \"未开始\"。\n"
+    "4. transferableAbilities:用户当前更明显的可迁移能力 3-5 个(简短词组)。\n"
+    "5. notRecommended:当前不建议优先尝试的方向 1-2 个,每个含 title + reason(说明为何匹配度低)。"
+)
+
+
+def build_explore_user_prompt(profile) -> str:
+    """AI 接入:把 ExploreProfile 各字段拼成给模型的用户输入(anthropic 分支用)。
+
+    profile 为 ExploreProfile(snake_case 内部表示);list 字段用顿号连接,空则标「未填写」。
+    """
+    return (
+        f"当前阶段:{profile.stage or '未填写'}\n"
+        f"学历状态:{profile.education or '未填写'}\n"
+        f"专业背景:{profile.major or '未填写'}\n"
+        f"兴趣偏好:{_join(profile.interests)}\n"
+        f"工作偏好:{_join(profile.work_preferences)}\n"
+        f"探索目标:{profile.goal or '未填写'}\n"
+        f"现实约束:{_join(profile.constraints)}\n"
+        f"经历类型:{_join(profile.experiences)}\n"
+        f"做过的事:{_join(profile.work_types)}\n"
+        f"偏好的工作状态:{_join(profile.preferred_states)}\n"
+        f"补充追问回答:{_join(profile.followups)}\n\n"
+        "请据此生成结构化的职业方向推荐结果。"
+    )
+
+
+def _join(value) -> str:
+    """list[str] → 顿号拼接;空列表/None → 「未填写」。供探索/追问 prompt 复用。"""
+    if not value:
+        return "未填写"
+    if isinstance(value, str):
+        return value
+    items = [str(item) for item in value if item]
+    return "、".join(items) if items else "未填写"
 
 # P1-05:面试复盘报告的真实 system prompt。要求模型扮演资深面试官 + 职业教练,
 # 基于上传的岗位信息与面试转写,产出结构化复盘报告。所有面向用户的文案必须是中文。
@@ -131,4 +179,94 @@ def build_analysis_json_prompt(job_title: str, company: str, jd: str, transcript
         "字段与类型严格按下面的示例(logic 2-4 项、star 覆盖 Situation/Task/Action/Result 四项,"
         "每项 status 取 较强/一般/偏弱;interviewer.questions 1-3 个;risks 各项 1-4 条):\n"
         f"{_ANALYSIS_JSON_EXAMPLE}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI 接入:职业方向探索(/generate-result)的 openai/DeepSeek JSON 模式素材。
+# 与 anthropic 分支共用 EXPLORE_SYSTEM_PROMPT;此处补「只输出 json + 结构示例」。
+# ---------------------------------------------------------------------------
+_EXPLORE_JSON_EXAMPLE = """{
+  "conclusion": "你更适合兼顾逻辑分析与沟通协作的岗位。",
+  "directions": [
+    {
+      "id": "ai-pm",
+      "title": "AI产品经理",
+      "match": "高",
+      "reason": "你的沟通表达与结构化思考与该方向较匹配。",
+      "portrait": {
+        "dailyWork": ["需求分析", "跨团队协作", "产品方案设计"],
+        "challenges": ["技术理解门槛高", "需平衡业务与技术"],
+        "abilities": ["沟通表达", "逻辑分析", "产品思维"],
+        "path": "产品助理 -> 产品经理 -> AI产品经理"
+      },
+      "whyFirst": ["和你的优势更贴近", "进入门槛相对可控"],
+      "abilitiesToBuild": [
+        {"title": "结构化表达", "description": "帮助你更清楚地介绍自己和经历"}
+      ],
+      "weeklyTasks": [
+        {"id": "read-jd", "title": "阅读 3 个该方向岗位 JD", "status": "未开始"}
+      ]
+    }
+  ],
+  "transferableAbilities": ["结构化表达", "沟通协作", "项目推进"],
+  "notRecommended": [
+    {"title": "纯算法研发", "reason": "通常要求更强的数学与编程长期积累,匹配度较低。"}
+  ]
+}"""
+
+
+def build_explore_json_prompt(profile) -> str:
+    """openai provider(JSON Output 模式)专用:基础画像输入后追加「只输出 json + 结构示例」。
+
+    字段含义沿用 EXPLORE_SYSTEM_PROMPT;match 取 高/较高/可尝试,weeklyTasks 的 status 一律「未开始」。
+    """
+    base = build_explore_user_prompt(profile)
+    return (
+        f"{base}\n\n"
+        "请只输出一个合法的 json 对象,不要任何额外文字或 markdown 代码块。"
+        "字段与类型严格按下面的示例(directions 2-3 个,match 取 高/较高/可尝试,"
+        "每个方向含 portrait/whyFirst/abilitiesToBuild/weeklyTasks,weeklyTasks 的 status 一律「未开始」,"
+        "transferableAbilities 3-5 个,notRecommended 1-2 个):\n"
+        f"{_EXPLORE_JSON_EXAMPLE}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI 接入:动态追问(/followup)。基于画像生成 2-3 个个性化追问。
+# 与方向推荐分开:追问更轻量、不缓存(每次进 followup 屏新生成)。
+# ---------------------------------------------------------------------------
+FOLLOWUP_SYSTEM_PROMPT = (
+    "你是一位温和、敏锐的 AI 职业探索教练。用户会提供一份已填写的自我画像。"
+    "请先学习画像,再只提出必要的动态追问,通过工具调用返回结构化结果。\n"
+    "要求:\n"
+    "1. 不重复询问画像里已经明确的信息。\n"
+    "2. 优先追问能帮助判断职业方向的证据,例如成就感来源、可迁移能力、现实约束边界。\n"
+    "3. 每个问题只问一件事,语气像自然对话,不要像表格问卷;单个问题不超过 40 个中文字符。\n"
+    "4. 最多返回 3 个问题;若画像信息已足够,返回空列表(questions 为 [])。\n"
+    "5. 所有文案使用简体中文。每个问题含短横线英文 id(如 work-proof)与 question 文本。"
+)
+
+
+def build_followup_user_prompt(profile) -> str:
+    """anthropic 分支用 —— 复用探索画像输入格式,改尾句。"""
+    base = build_explore_user_prompt(profile)
+    return base.replace("请据此生成结构化的职业方向推荐结果。", "请据此判断是否需要继续追问,并生成必要的个性化追问。")
+
+
+_FOLLOWUP_JSON_EXAMPLE = """{
+  "questions": [
+    {"id": "work-proof", "question": "你提到的这些事里,哪一类最让你有成就感?"}
+  ]
+}"""
+
+
+def build_followup_json_prompt(profile) -> str:
+    """openai provider(JSON Output 模式)专用 —— 基础输入后追加「只输出 json + 结构示例」。"""
+    base = build_followup_user_prompt(profile)
+    return (
+        f"{base}\n\n"
+        "请只输出一个合法的 json 对象,不要任何额外文字或 markdown 代码块。"
+        "字段严格按下面的示例(questions 0-3 个,每个含短横线英文 id 与 question;信息足够则 questions 为 []):\n"
+        f"{_FOLLOWUP_JSON_EXAMPLE}"
     )

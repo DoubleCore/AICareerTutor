@@ -18,6 +18,7 @@ type AppState = {
   setProfileField: (key: keyof ExploreProfile, value: string | string[]) => void;
   addFollowup: (answer: string) => void;
   setSelectedDirection: (id: string) => void;
+  setDirections: (directions: DirectionRecommendation[]) => void;
   saveCurrentPath: (tasks?: ExploreTask[]) => void;
   updateExploreTask: (id: string, status: TaskStatus) => void;
   updateTrainingTask: (id: string, status: TaskStatus) => void;
@@ -50,6 +51,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       profile: { ...state.profile, followups: [...state.profile.followups, answer] }
     })),
   setSelectedDirection: (id) => set({ selectedDirectionId: id }),
+  setDirections: (directions) =>
+    set((state) => ({
+      directions,
+      // 若当前选中方向不在新方向集里(AI 生成了新 id),对齐到首个方向,避免 path 屏保存到失效 id。
+      selectedDirectionId: directions.some((item) => item.id === state.selectedDirectionId)
+        ? state.selectedDirectionId
+        : (directions[0]?.id ?? state.selectedDirectionId)
+    })),
   saveCurrentPath: (tasks) => {
     const direction = get().directions.find((item) => item.id === get().selectedDirectionId) ?? get().directions[0];
     set({
