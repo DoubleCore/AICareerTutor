@@ -62,6 +62,10 @@ class ReportRow(SQLModel, table=True):
     report_json=None),后台生成后填 report_json + status=ready。无需跨表协调一致性。
     report_json 为 InterviewReport.model_dump_json() 结果(snake_case 内部表示);
     读出时 InterviewReport.model_validate_json 还原。status: generating|ready|failed|idle。
+
+    P1-09:analysis_json 追加列 —— 同一次 analyze 产出的「深入分析」(InterviewAnalysis,
+    逻辑/STAR/面试官/风险四维),与 report_json 同 session 同生命周期(一起 generating→一起 ready)。
+    复用本表(而非新建)避免跨表一致性协调;默认 None(老行/未生成时为空,读时回退 mock)。
     """
 
     __tablename__ = "interview_reports"
@@ -69,3 +73,26 @@ class ReportRow(SQLModel, table=True):
     session_id: str = Field(primary_key=True)
     status: str = "idle"
     report_json: str | None = None
+    analysis_json: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# P1-07:训练任务状态按 session 持久化(修掉 overview 点击任务状态、刷新即重置)。
+#
+# 设计延续 P1-08「report_json 只读」:不改写报告 JSON。任务**清单**(id/title/
+# description)仍来自报告的 priority_tasks(只读),任务**状态**独立存这张表。
+# 读 overview/training 时把状态叠加到报告任务上(未命中用报告里的初始 status)。
+#
+# 复合主键 (session_id, task_id):mock 模式下多个 session 的 priority_tasks 共用同一组
+# task_id(quantify-result 等),必须按 session 隔离,否则跨 session 撞状态。
+# ---------------------------------------------------------------------------
+
+
+class TrainingTaskStatusRow(SQLModel, table=True):
+    """单个训练任务在某 session 下的完成状态。主键 (session_id, task_id)。"""
+
+    __tablename__ = "training_task_status"
+
+    session_id: str = Field(primary_key=True)
+    task_id: str = Field(primary_key=True)
+    status: str  # 未开始 | 进行中 | 已完成

@@ -54,9 +54,9 @@ export function getTrainingTasks(sessionId = "mock-session"): Promise<TrainingTa
   return request<TrainingTask[]>(`/interview/training/${encodeURIComponent(sessionId)}`);
 }
 
-/** PATCH /interview/training/task/{taskId} —— 更新单个训练任务状态。 */
-export function updateTrainingTask(taskId: string, status: TaskStatus): Promise<TrainingTask> {
-  return request<TrainingTask>(`/interview/training/task/${encodeURIComponent(taskId)}`, {
+/** PATCH /interview/training/{sessionId}/task/{taskId} —— 更新某 session 下单个训练任务状态。 */
+export function updateTrainingTask(sessionId: string, taskId: string, status: TaskStatus): Promise<TrainingTask> {
+  return request<TrainingTask>(`/interview/training/${encodeURIComponent(sessionId)}/task/${encodeURIComponent(taskId)}`, {
     method: "PATCH",
     body: { status }
   });

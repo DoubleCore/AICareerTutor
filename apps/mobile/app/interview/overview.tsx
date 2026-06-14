@@ -6,7 +6,7 @@ import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import { AppButton, Card, Screen, StatusTag, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { ApiError } from "@/services/apiClient";
-import { getInterviewOverview } from "@/services/interviewApi";
+import { getInterviewOverview, updateTrainingTask } from "@/services/interviewApi";
 import { useAppStore } from "@/store/useAppStore";
 import { InterviewReport, TaskStatus, TrainingTask } from "@/types/domain";
 
@@ -117,8 +117,20 @@ export default function InterviewOverview() {
     setTasks(interviewReport.priorityTasks);
   }, [interviewReport]);
 
+  // P1-07:点击切换任务状态 —— 乐观更新本地 state(保留交互手感)+ 真调 PATCH 按 session 落库;
+  // 失败回滚并 warn(对齐本页「失败回退本地」风格,演示不中断)。刷新/重启后状态从后端存活。
   const cycleTaskStatus = (taskId: string) => {
-    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, status: nextStatus[task.status] } : task)));
+    const current = tasks.find((task) => task.id === taskId);
+    if (!current) {
+      return;
+    }
+    const target = nextStatus[current.status];
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, status: target } : task)));
+    updateTrainingTask(session, taskId, target).catch((err: unknown) => {
+      const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+      console.warn("[overview] 更新任务状态失败,回滚本地:", reason);
+      setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, status: current.status } : task)));
+    });
   };
 
   return (
@@ -130,7 +142,7 @@ export default function InterviewOverview() {
       footer={
         <View style={styles.footerActions}>
           <View style={styles.footerButton}>
-            <AppButton title="查看深入分析" variant="secondary" onPress={() => router.push("/interview/analysis")} />
+            <AppButton title="查看深入分析" variant="secondary" onPress={() => router.push(`/interview/analysis?sessionId=${encodeURIComponent(session)}`)} />
           </View>
           <View style={styles.footerButton}>
             <AppButton title="进入训练进度" onPress={() => router.push("/interview/training")} />

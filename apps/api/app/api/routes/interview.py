@@ -45,12 +45,14 @@ def analysis(session_id: str) -> InterviewAnalysis:
 
 @router.get("/training/{session_id}", response_model=list[TrainingTask])
 def training(session_id: str) -> list[TrainingTask]:
-    return mock_state.TRAINING_TASKS
+    # P1-07:按 session 返回训练任务(清单取自报告 priorityTasks,状态叠加持久化值)。
+    return mock_state.get_training_tasks(session_id)
 
 
-@router.patch("/training/task/{task_id}", response_model=TrainingTask)
-def update_task(task_id: str, payload: UpdateTrainingTaskRequest) -> TrainingTask:
-    task = mock_state.update_training_task(task_id, payload.status)
+@router.patch("/training/{session_id}/task/{task_id}", response_model=TrainingTask)
+def update_task(session_id: str, task_id: str, payload: UpdateTrainingTaskRequest) -> TrainingTask:
+    # P1-07:路径带 session_id —— mock 模式下不同 session 共用同组 task_id,必须按 session 隔离落库。
+    task = mock_state.update_training_task(session_id, task_id, payload.status)
     if not task:
         raise HTTPException(status_code=404, detail="Training task not found")
     return task

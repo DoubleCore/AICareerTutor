@@ -1,7 +1,7 @@
 from sqlmodel import Session, select
 
 from app.db.database import engine
-from app.db.models import InterviewSessionRow, ReportRow
+from app.db.models import InterviewSessionRow, ReportRow, TrainingTaskStatusRow
 from app.schemas.explore import CurrentPathResponse, DirectionRecommendation, ExploreProfile, ExploreResult, ExploreTask, FollowupQuestion, JobPortrait
 from app.schemas.interview import InterviewAnalysis, InterviewReport, InterviewUpload, TrainingTask
 
@@ -239,7 +239,9 @@ def get_report_status(session_id: str = "mock-session") -> str:
     return "ready" if row.report_json else "idle"
 
 
-def get_analysis() -> InterviewAnalysis:
+def build_mock_analysis() -> InterviewAnalysis:
+    # P1-09:构造一份固定的 mock 深入分析(纯构造,不读/写缓存),供 ai_service 的 mock 分支与回退使用。
+    # 原 get_analysis() 的固定构造逻辑改名至此;get_analysis 改为按 session 读缓存(未命中回退此函数)。
     return InterviewAnalysis(
         logic=[
             {"title": "回答主线", "status": "一般", "description": "回答有内容，但关键信息出现偏后，面试官需要自己提炼重点。"},
@@ -261,9 +263,76 @@ def get_analysis() -> InterviewAnalysis:
     )
 
 
-def update_training_task(task_id: str, status: str) -> TrainingTask | None:
-    for task in TRAINING_TASKS:
-        if task.id == task_id:
-            task.status = status  # type: ignore[assignment]
-            return task
-    return None
+def save_analysis(session_id: str, analysis: InterviewAnalysis) -> InterviewAnalysis:
+    """P1-09:把已生成的深入分析按 sessionId 落库(写 ReportRow.analysis_json)。
+
+    与 save_report 对称、复用同一 ReportRow:行已存在(/analyze 先建过 generating 行或已存报告)
+    则补 analysis_json,否则新建。不动 status / report_json —— analysis 与 report 同生命周期,
+    status 由报告侧/run_analysis 末尾统一置 ready。
+    """
+    payload = analysis.model_dump_json()
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+        if row is None:
+            row = ReportRow(session_id=session_id, analysis_json=payload)
+        else:
+            row.analysis_json = payload
+        session.add(row)
+        session.commit()
+    return analysis
+
+
+def get_analysis(session_id: str = "mock-session") -> InterviewAnalysis:
+    """P1-09:读取深入分析 —— 命中 DB(有 analysis_json)直接返回,未命中回退构造 mock。
+
+    /analysis 走这里(经 ai_service.generate_interview_analysis 转发):纯读操作,绝不触发 real LLM,
+    也不落库,避免每次刷新重复生成/烧钱。对齐 get_report 的纯读语义。
+    """
+    with Session(engine) as session:
+        row = session.get(ReportRow, session_id)
+    if row is not None and row.analysis_json:
+        return InterviewAnalysis.model_validate_json(row.analysis_json)
+    return build_mock_analysis()
+
+
+def _apply_task_status(session_id: str, tasks: list[TrainingTask]) -> list[TrainingTask]:
+    """P1-07:把该 session 持久化的任务状态叠加到报告任务清单上。
+
+    任务清单(id/title/description)来自报告 priority_tasks(只读);状态来自
+    training_task_status 表。命中表则用表里的 status,未命中保留报告里的初始 status。
+    """
+    with Session(engine) as session:
+        rows = session.exec(select(TrainingTaskStatusRow).where(TrainingTaskStatusRow.session_id == session_id)).all()
+    overrides = {row.task_id: row.status for row in rows}
+    return [task.model_copy(update={"status": overrides[task.id]}) if task.id in overrides else task for task in tasks]
+
+
+def get_training_tasks(session_id: str = "mock-session") -> list[TrainingTask]:
+    """P1-07:返回该 session 的训练任务(清单取自报告 priority_tasks,状态叠加持久化值)。
+
+    /training/{session_id} 走这里。未 analyze 的 session 会回退 mock 报告,priorityTasks
+    是 mock 三任务 —— 仍能返回、状态也能叠加(即便 mock 报告也能记状态,行为合理)。
+    """
+    tasks = get_report(session_id).priority_tasks
+    return _apply_task_status(session_id, tasks)
+
+
+def update_training_task(session_id: str, task_id: str, status: str) -> TrainingTask | None:
+    """P1-07:更新某 session 下单个训练任务的状态并落库(upsert)。
+
+    任务必须存在于该 session 报告的 priority_tasks 里(否则返回 None → 路由转 404)。
+    状态写进 training_task_status(复合主键 session+task),跨 session 隔离、跨重启存活。
+    """
+    tasks = get_report(session_id).priority_tasks
+    target = next((task for task in tasks if task.id == task_id), None)
+    if target is None:
+        return None
+    with Session(engine) as session:
+        row = session.get(TrainingTaskStatusRow, (session_id, task_id))
+        if row is None:
+            row = TrainingTaskStatusRow(session_id=session_id, task_id=task_id, status=status)
+        else:
+            row.status = status
+        session.add(row)
+        session.commit()
+    return target.model_copy(update={"status": status})
