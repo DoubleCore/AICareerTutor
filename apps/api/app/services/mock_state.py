@@ -71,6 +71,11 @@ _SESSION_COUNTER = 0
 # 避免每次 GET 重新拼装(real 模式下更是避免重复烧 LLM)。进程内内存,重启即清空。
 REPORTS: dict[str, InterviewReport] = {}
 
+# 方案C:按 sessionId 追踪报告生成状态。/analyze 改为后台异步生成 —— 先置 "generating",
+# 后台线程跑完(成功或回退 mock)置 "ready"。前端 analyzing 页轮询 /status,ready 才跳 overview。
+# 进程内内存,重启即清空(与 REPORTS 同生命周期)。
+REPORT_STATUS: dict[str, str] = {}
+
 
 def get_followups(_: ExploreProfile) -> list[FollowupQuestion]:
     return [
@@ -141,6 +146,23 @@ def get_report(session_id: str = "mock-session") -> InterviewReport:
     if cached is not None:
         return cached
     return build_mock_report(session_id)
+
+
+def set_report_status(session_id: str, status: str) -> None:
+    """方案C:写报告生成状态。/analyze 触发后台前置 "generating",后台跑完置 "ready"。"""
+    REPORT_STATUS[session_id] = status
+
+
+def get_report_status(session_id: str = "mock-session") -> str:
+    """方案C:读报告生成状态。
+
+    未显式记录过状态时:若报告已在缓存(如历史已生成、或 profile 无参取过),视为 "ready";
+    否则 "idle"(从未触发 analyze)。前端据此判断是否继续轮询。
+    """
+    status = REPORT_STATUS.get(session_id)
+    if status is not None:
+        return status
+    return "ready" if session_id in REPORTS else "idle"
 
 
 def get_analysis() -> InterviewAnalysis:

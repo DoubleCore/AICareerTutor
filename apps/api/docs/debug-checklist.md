@@ -107,3 +107,28 @@
 - **前端**:无改动 —— provider 切换对前端透明,仍走同一 sessionId 链路。
 - **未做(留后续)**:`/analysis` 接口尚未接 real(仍纯 mock);explore 流的 real(可复用此 provider 分发接缝);报告落库待 P1-08。
 - **是否通过**:✅ 通过(DeepSeek 真实出参已验证;mock 默认 + 回退零破坏)
+
+---
+
+## 方案C 异步生成 + 轮询(让真实 AI 报告在前端可见)
+
+- **分支**:`claude/determined-swanson-f93884`
+- **触发**:首次端到端联调(Expo web + Playwright)发现真 bug —— 前端演示**永远只看到 mock 报告**。根因:`analyzing.tsx` 阻塞式调 `/analyze`(real 模式真调 DeepSeek 15~24s)被 `apiClient` 的 12s 超时掐断(`net::ERR_ABORTED`);随即跳 overview 只 GET 一次,此时后端还没算完 → 缓存空 → 回退 mock。后端线程其实十几秒后才把真报告入缓存,但前端早跳过去了。curl 无超时所以之前能拿到真报告,前端有。**第二个问题**:overview 任务区渲染的是本地 store `trainingTasks` 而非报告的 `priorityTasks`,即便报告是真 AI 也恒显示 mock 任务。
+- **方案**:同步阻塞 → **异步生成 + 前端轮询**。`/analyze` 立即返回 `generating` 并把生成丢后台线程;前端 analyzing 页每 2s 轮询 `/status`,`ready` 才跳 overview。读 overview 必命中真报告。
+- **改动文件**:
+  - `app/schemas/interview.py`:新增 `AnalysisStatusResponse(session_id, status)`。
+  - `app/services/mock_state.py`:新增 `REPORT_STATUS` dict + `set_report_status` / `get_report_status`(未知 session 命中 `REPORTS` 返回 `ready`,否则 `idle`)。
+  - `app/services/ai_service.py`:`analyze_interview` 拆成 `run_analysis`(阻塞全量生成 + 末尾置 `ready`,供 BackgroundTask 调)、`_generate_report`(原 mock/real/回退三分支)、`get_analysis_status`(转发)。`get_interview_report` 纯读不变。
+  - `app/api/routes/interview.py`:`/analyze` 改 `BackgroundTasks` —— 先 `set_report_status(generating)` → `add_task(run_analysis)` → 立即返回 `AnalysisStatusResponse`;新增 `GET /status/{session_id}`。
+  - `apps/mobile/services/interviewApi.ts`:`analyzeInterview` 返回 `AnalysisStatusResponse`;新增 `getAnalysisStatus` + 类型。
+  - `apps/mobile/app/interview/analyzing.tsx`:单次 analyze → kick off + 每 2s 轮询(上限 90s),`ready`/失败/超时都跳 overview;保留 ≥10s 最小动画;卸载 cleanup。
+  - `apps/mobile/app/interview/overview.tsx`:任务区从 store `trainingTasks` 改读 `interviewReport.priorityTasks`,本地 `useState` 承接点击切换(apiReport 到达后 effect 同步);持久化留给 P1-07。
+- **校验结果**:
+  - 后端 TestClient(mock):analyze→`generating`;BackgroundTask 跑完→`ready`;overview 命中缓存;未触发 session→`idle`。
+  - 后端 curl(real,`deepseek-v4-pro`):analyze **7ms** 秒回 generating;轮询 4s→ready;overview `passPossibility=40`(非 62,真 AI)。
+  - 前端 `npm run typecheck` → EXIT 0。
+  - **端到端(Playwright web,real)**:填"短视频推荐系统冷启动"转写 → analyzing 轮询约 24s → overview **显示真实 DeepSeek 报告**:52%/中(非 mock 62);核心问题精准复述("AB实验分组/显著性检验说不清""新用户无数据只说参考热门");任务区为 AI 任务("AB实验设计专项""冷启动用户分层策略");任务点击未开始→进行中切换正常。
+  - L5 `python smoke_test.py all` → PASS=16 FAIL=0(mock 默认零回归;TestClient 等 BackgroundTask 跑完再返回,smoke 无破坏)。
+- **踩坑**:旧后端进程(real 模式)未随 TaskStop 真正退出,仍占 8000 端口,导致新代码起不来、答请求的是旧进程(analyze 仍同步、`/status` 404)。`netstat` 定位 PID → `taskkill //F` 释放端口后重启,新代码生效。
+- **未做(留后续)**:`/analysis` 接口仍纯 mock 未接 real;explore 流 real;报告 + 训练任务状态落库待 P1-08 / P1-07(当前 overview 任务点击是本地 state,刷新重置)。
+- **是否通过**:✅ 通过(前端首次看到真实 AI 报告;mock 默认 + 回退零破坏)
