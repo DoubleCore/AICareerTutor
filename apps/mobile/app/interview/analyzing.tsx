@@ -5,11 +5,16 @@ import { Animated, Easing, Image, ImageSourcePropType, StyleSheet, Text, View } 
 import { Card, Screen, uiStyles } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { ApiError } from "@/services/apiClient";
-import { analyzeInterview } from "@/services/interviewApi";
+import { analyzeInterview, getAnalysisStatus } from "@/services/interviewApi";
 
 const reportTitleIcon = require("../../img/4-1.png") as ImageSourcePropType;
 const tipIconImage = require("../../img/9-1.png") as ImageSourcePropType;
 const stepAdvanceMs = 1250;
+// 方案C:轮询参数。每 2s 查一次报告生成状态;最多等 90s(real 模式 DeepSeek 约 15~24s,
+// 留足余量),超时仍跳 overview(自带 mock 回退,演示不中断)。最少展示 10s 动画避免一闪而过。
+const pollIntervalMs = 2000;
+const pollTimeoutMs = 90000;
+const minAnimationMs = 10000;
 
 const steps = [
   ["读取面试资料", "已完成"],
@@ -211,28 +216,57 @@ export default function InterviewAnalyzing() {
   const session = sessionId ?? "mock-session";
   const [activeStep, setActiveStep] = useState(0);
 
-  // P1-04:真实触发后端分析,完成后带 sessionId 跳转复盘页;失败也跳转(overview 自带 mock 回退)。
-  // 同时保证至少展示约 10s 动画,避免后端秒回时动画一闪而过。
+  // 方案C:触发后台异步生成,然后轮询状态;ready / 失败 / 超时都跳 overview(自带 mock 回退,不中断)。
+  // 同时保证至少展示约 10s 动画,避免后端秒回(mock 模式)时动画一闪而过。
   useEffect(() => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
     let navigated = false;
+    const startedAt = Date.now();
+
     const go = () => {
-      if (navigated) return;
+      if (navigated || cancelled) return;
       navigated = true;
-      router.replace(`/interview/overview?sessionId=${encodeURIComponent(session)}`);
+      const wait = Math.max(0, minAnimationMs - (Date.now() - startedAt));
+      setTimeout(() => {
+        if (!cancelled) router.replace(`/interview/overview?sessionId=${encodeURIComponent(session)}`);
+      }, wait);
     };
 
-    const minDelay = new Promise<void>((resolve) => setTimeout(resolve, 10000));
-    const analyzed = analyzeInterview(session).catch((err: unknown) => {
-      const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
-      console.warn("[analyzing] 分析失败,仍进入复盘页(走 mock 回退):", reason);
-    });
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const { status } = await getAnalysisStatus(session);
+        if (status === "ready" || status === "failed") {
+          go();
+          return;
+        }
+      } catch (err: unknown) {
+        // 轮询单次失败不致命,继续重试直到超时;真正进不去时由超时兜底跳转。
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[analyzing] 轮询状态失败,继续重试:", reason);
+      }
+      if (Date.now() - startedAt >= pollTimeoutMs) {
+        console.warn("[analyzing] 轮询超时,仍进入复盘页(走 mock 回退)");
+        go();
+        return;
+      }
+      pollTimer = setTimeout(poll, pollIntervalMs);
+    };
 
-    let cancelled = false;
-    Promise.all([minDelay, analyzed]).then(() => {
-      if (!cancelled) go();
-    });
+    analyzeInterview(session)
+      .catch((err: unknown) => {
+        // 触发失败(如上传未成功)也继续轮询;overview 端仍会 mock 回退。
+        const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
+        console.warn("[analyzing] 触发分析失败,仍尝试轮询/跳转:", reason);
+      })
+      .finally(() => {
+        if (!cancelled) pollTimer = setTimeout(poll, pollIntervalMs);
+      });
+
     return () => {
       cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
     };
   }, [session]);
 

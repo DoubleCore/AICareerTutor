@@ -7,6 +7,8 @@ from app.api.routes import explore, health, interview, profile
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
+from app.db.database import init_db
+from app.services import mock_state
 
 setup_logging()
 logger = get_logger("app.main")
@@ -14,12 +16,16 @@ logger = get_logger("app.main")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # P1-08:启动时建表(幂等)并从 DB 回灌 sessionId 计数器(跨重启不撞号)。
+    init_db()
+    mock_state._seed_session_counter()
     logger.info(
-        "%s v%s started (env=%s, cors=%s)",
+        "%s v%s started (env=%s, cors=%s, db=%s)",
         settings.app_name,
         settings.app_version,
         settings.environment,
         settings.cors_origin_list,
+        settings.database_url,
     )
     yield
 

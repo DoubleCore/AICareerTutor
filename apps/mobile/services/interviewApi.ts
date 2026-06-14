@@ -17,9 +17,26 @@ export function uploadInterview(payload: Partial<Omit<InterviewUpload, "sessionI
   return request<UploadResponse>("/interview/upload", { method: "POST", body: payload });
 }
 
-/** POST /interview/analyze —— 触发分析,返回面试报告。 */
-export function analyzeInterview(sessionId = "mock-session"): Promise<InterviewReport> {
-  return request<InterviewReport>(`/interview/analyze?session_id=${encodeURIComponent(sessionId)}`, { method: "POST" });
+/**
+ * 报告生成状态响应(方案C),对齐后端 AnalysisStatusResponse。
+ * status: generating(后台生成中)/ ready(已生成,可读 overview)/ idle(未触发)/ failed。
+ */
+export type AnalysisStatusResponse = {
+  sessionId: string;
+  status: string;
+};
+
+/**
+ * POST /interview/analyze —— 触发后台异步生成报告,立即返回 { sessionId, status: "generating" }。
+ * 真正的报告由后端后台线程生成(real 模式下真调 LLM,耗时较长),前端需轮询 getAnalysisStatus。
+ */
+export function analyzeInterview(sessionId = "mock-session"): Promise<AnalysisStatusResponse> {
+  return request<AnalysisStatusResponse>(`/interview/analyze?session_id=${encodeURIComponent(sessionId)}`, { method: "POST" });
+}
+
+/** GET /interview/status/{sessionId} —— 轮询报告生成状态,ready 后即可读 overview。 */
+export function getAnalysisStatus(sessionId = "mock-session"): Promise<AnalysisStatusResponse> {
+  return request<AnalysisStatusResponse>(`/interview/status/${encodeURIComponent(sessionId)}`);
 }
 
 /** GET /interview/overview/{sessionId} —— 面试复盘报告。 */

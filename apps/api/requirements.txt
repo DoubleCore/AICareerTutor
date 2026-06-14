@@ -3,6 +3,8 @@ uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 pydantic-settings>=2.2.0
 python-multipart>=0.0.9
+# P1-08:本地 SQLite 落库(面试链路持久化)。SQLModel 自带 SQLAlchemy,兼容 pydantic v2。
+sqlmodel>=0.0.16
 # P1-05/AI:real 模式按 ai_provider 选 SDK;默认 mock 模式都不依赖。
 # anthropic:官方 Claude(ai_provider=anthropic)。
 # openai:OpenAI 兼容端点,DeepSeek 等走这条(ai_provider=openai + ai_base_url)。

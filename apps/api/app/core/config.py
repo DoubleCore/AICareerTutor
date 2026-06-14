@@ -1,8 +1,13 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# apps/api 目录(config.py 在 app/core/ 下,parents[2] 即 apps/api)。
+# 数据库默认路径锚定在此,不随进程 cwd 漂移(uvicorn / smoke / pytest 启动目录可能不同)。
+_APPS_API_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -40,6 +45,10 @@ class Settings(BaseSettings):
     ai_model: str = "claude-sonnet-4-6"
     ai_api_key: str = ""
     ai_max_tokens: int = 2000
+
+    # P1-08:数据库连接串。默认本地 SQLite(apps/api/career_tutor.db,绝对路径)。
+    # 可被 .env 的 DATABASE_URL 覆盖(如 smoke 用临时库、将来迁 Postgres)。
+    database_url: str = f"sqlite:///{(_APPS_API_DIR / 'career_tutor.db').as_posix()}"
 
     @property
     def cors_origin_list(self) -> list[str]:

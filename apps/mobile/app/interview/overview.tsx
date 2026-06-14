@@ -86,7 +86,7 @@ function ActionTask({ task, index, onPress }: { task: TrainingTask; index: numbe
 export default function InterviewOverview() {
   const { sessionId } = useLocalSearchParams<{ sessionId?: string }>();
   const session = sessionId ?? "mock-session";
-  const { interviewReport: storeReport, trainingTasks, updateTrainingTask } = useAppStore();
+  const { interviewReport: storeReport } = useAppStore();
   const [apiReport, setApiReport] = useState<InterviewReport | null>(null);
 
   // P1-03/04 联调:挂载时按 sessionId 拉取真实后端报告;失败则回退到 store mock,保证演示不中断。
@@ -108,6 +108,18 @@ export default function InterviewOverview() {
   }, [session]);
 
   const interviewReport = apiReport ?? storeReport;
+
+  // 方案C:任务区展示「报告自带的 priorityTasks」(= 真实 AI 任务或 mock 报告任务),
+  // 而非本地 store 的 trainingTasks。用本地 state 承接点击切换(未开始→进行中→已完成),
+  // 报告变化(apiReport 到达)时同步;持久化留给 P1-07,本次不触 store 契约。
+  const [tasks, setTasks] = useState<TrainingTask[]>(interviewReport.priorityTasks);
+  useEffect(() => {
+    setTasks(interviewReport.priorityTasks);
+  }, [interviewReport]);
+
+  const cycleTaskStatus = (taskId: string) => {
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, status: nextStatus[task.status] } : task)));
+  };
 
   return (
     <Screen
@@ -204,8 +216,8 @@ export default function InterviewOverview() {
       <Card>
         <SectionTitle icon="track-changes" title="你现在最该做的 3 件事" />
         <View style={styles.actionList}>
-          {trainingTasks.map((task, index) => (
-            <ActionTask key={task.id} task={task} index={index} onPress={() => updateTrainingTask(task.id, nextStatus[task.status])} />
+          {tasks.map((task, index) => (
+            <ActionTask key={task.id} task={task} index={index} onPress={() => cycleTaskStatus(task.id)} />
           ))}
         </View>
       </Card>

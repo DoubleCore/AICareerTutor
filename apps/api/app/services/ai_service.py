@@ -16,8 +16,8 @@ def generate_explore_result(_: ExploreProfile | None = None) -> ExploreResult:
     return mock_state.get_explore_result()
 
 
-def analyze_interview(session_id: str) -> InterviewReport:
-    """P1-05:面试复盘报告生成,mock/real 双模式。
+def run_analysis(session_id: str) -> InterviewReport:
+    """方案C:面试复盘报告生成(阻塞式全量生成),供 BackgroundTask 在后台线程调用。
 
     - mock(默认):走 mock_state,零依赖零密钥,演示/CI 安全。
     - real:基于本次上传内容调用真实模型(ai_provider: anthropic / openai),
@@ -28,8 +28,18 @@ def analyze_interview(session_id: str) -> InterviewReport:
     P1-06:无论 mock 还是 real,生成成功后都把报告按 sessionId 写入缓存(save_report),
     供 /overview 纯读返回,避免每次 GET 重新生成(real 模式下避免重复烧 LLM)。
 
+    方案C:报告(成功或回退 mock)入缓存后把状态置 "ready",前端轮询到 ready 才跳 overview。
+    回退 mock 也是一份有效报告,故同样置 ready(不阻塞演示)。
+
     session_id 由服务端权威生成并回填,不信任模型返回的该字段。
     """
+    report = _generate_report(session_id)
+    mock_state.set_report_status(session_id, "ready")
+    return report
+
+
+def _generate_report(session_id: str) -> InterviewReport:
+    """实际生成逻辑:mock / real / 回退三分支,各自 save_report 入缓存。"""
     if settings.ai_mode != "real":
         return mock_state.save_report(mock_state.build_mock_report(session_id))
 
@@ -49,13 +59,18 @@ def analyze_interview(session_id: str) -> InterviewReport:
         return mock_state.save_report(mock_state.build_mock_report(session_id))
 
 
+def get_analysis_status(session_id: str) -> str:
+    """方案C:读报告生成状态(generating / ready / idle),转发 mock_state。"""
+    return mock_state.get_report_status(session_id)
+
+
 def _real_interview_report(session_id: str) -> InterviewReport:
     """按 ai_provider 分发到具体 SDK。两条分支产出同一份 camelCase payload,
     再统一回填服务端权威字段(sessionId / title 兜底)并校验为 InterviewReport。
 
     SDK 均在各自分支内延迟导入:mock 模式下即使未安装也不受影响。
     """
-    upload = mock_state.SESSIONS.get(session_id, mock_state.LATEST_UPLOAD)
+    upload = mock_state.get_upload(session_id)
 
     if settings.ai_provider == "openai":
         payload = _openai_report_payload(upload)

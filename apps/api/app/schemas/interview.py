@@ -18,6 +18,19 @@ class UploadResponse(CamelModel):
     status: str = "uploaded"
 
 
+class AnalysisStatusResponse(CamelModel):
+    """报告生成状态。status 取值:
+    - generating:后台正在生成(可能在真调 LLM)。
+    - ready:报告已生成并入缓存,/overview 可读到。
+    - failed:生成流程异常(当前实现里回退 mock 也算 ready,故 failed 仅理论态)。
+    - idle:该 session 尚未触发过 analyze。
+    前端 analyzing 页据此轮询,ready 才跳 overview。
+    """
+
+    session_id: str
+    status: str
+
+
 class TrainingTask(CamelModel):
     id: str
     title: str
