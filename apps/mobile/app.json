@@ -3,10 +3,16 @@
     "name": "AI职场导师",
     "slug": "ai-career-tutor",
     "scheme": "aicareertutor",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F8FA"
+    },
     "web": {
       "bundler": "metro"
     },
@@ -14,7 +20,17 @@
       "expo-router"
     ],
     "android": {
-      "package": "com.anonymous.aicareertutor"
+      "package": "com.anonymous.aicareertutor",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F7F8FA"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.anonymous.aicareertutor",
+      "buildNumber": "1.0.0",
+      "supportsTablet": true
     }
   }
 }
