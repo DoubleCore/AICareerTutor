@@ -2,11 +2,17 @@
   "expo": {
     "name": "AI职场导师",
     "slug": "ai-career-tutor",
+    "owner": "doublecore",
     "scheme": "aicareertutor",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "extra": {
+      "eas": {
+        "projectId": "dc8a9c95-99fc-4fc3-9b63-d38aa41e1d47"
+      }
+    },
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
@@ -20,7 +26,7 @@
       "expo-router"
     ],
     "android": {
-      "package": "com.anonymous.aicareertutor",
+      "package": "com.doublecore.aicareertutor",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -28,7 +34,7 @@
       }
     },
     "ios": {
-      "bundleIdentifier": "com.anonymous.aicareertutor",
+      "bundleIdentifier": "com.doublecore.aicareertutor",
       "buildNumber": "1.0.0",
       "supportsTablet": true
     }
