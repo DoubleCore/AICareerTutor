@@ -32,6 +32,10 @@ export class ApiError extends Error {
  * - 优先用 EXPO_PUBLIC_API_URL(.env / .env.example 已预留)。
  * - 缺省时按平台兜底:Android 模拟器走 10.0.2.2(宿主机回环),其余走 localhost。
  *   真机调试需在 .env 写本机局域网 IP(如 http://192.168.x.x:8000)。
+ *
+ * @deprecated App 已独立化(AI 直连 DeepSeek + 本地 store),不再走 FastAPI 后端。
+ *   request/getHealth/API_BASE_URL 仅保留作可选的 web 联调,正常打包路径不使用。
+ *   ApiError 类仍被各屏幕 import 做 catch 分支判断,必须保留。
  */
 function resolveBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim();

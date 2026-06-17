@@ -1,9 +1,10 @@
 import { DirectionRecommendation, ExploreProfile, ExploreTask, FollowupQuestion } from "@/types/domain";
-import { request } from "./apiClient";
+import { useAppStore } from "@/store/useAppStore";
+import { aiGenerateExploreResult, aiGenerateFollowup } from "./ai";
 
 /**
- * 职业探索相关接口,路径对齐 apps/api/app/api/routes/explore.py(前缀 /explore)。
- * ExploreResult / CurrentPathResponse 未在 types/domain.ts 定义,这里就近补与后端 schema 对齐的结构类型。
+ * 职业探索接口。App 独立化后不再走后端 —— AI 类(followup / generate-result)直连 DeepSeek,
+ * 存取类直接读写 zustand store。导出的类型与函数签名保持不变,屏幕代码零改动。
  */
 
 export type ExploreResult = {
@@ -23,7 +24,7 @@ export type StatusResponse = {
   message: string;
 };
 
-// 多轮追问:每轮把画像 + 已问问答历史发回后端,后端返回下一题或 done。
+// 多轮追问:每轮把画像 + 已问问答历史交给 AI,返回下一题或 done。
 export type FollowupTurn = {
   question: string;
   answer: string;
@@ -34,40 +35,68 @@ export type FollowupResponse = {
   done: boolean;
 };
 
-// 真实 LLM 生成(followup / generate-result)可能超过默认 12s,给这两个调用单独放宽超时。
-const EXPLORE_AI_TIMEOUT_MS = 45000;
+const LOCAL_OK: StatusResponse = { ok: true, message: "local" };
 
-/** POST /explore/basic-profile —— 提交基础画像。 */
-export function submitBasicProfile(profile: ExploreProfile): Promise<StatusResponse> {
-  return request<StatusResponse>("/explore/basic-profile", { method: "POST", body: profile });
+/** 提交基础画像 —— 画像已由屏幕的 setProfileField 写入 store,这里是 no-op。 */
+export function submitBasicProfile(_profile: ExploreProfile): Promise<StatusResponse> {
+  return Promise.resolve(LOCAL_OK);
 }
 
-/** POST /explore/experience —— 提交经历。 */
-export function submitExperience(profile: ExploreProfile): Promise<StatusResponse> {
-  return request<StatusResponse>("/explore/experience", { method: "POST", body: profile });
+/** 提交经历 —— 同上,no-op。 */
+export function submitExperience(_profile: ExploreProfile): Promise<StatusResponse> {
+  return Promise.resolve(LOCAL_OK);
 }
 
-/** POST /explore/followup —— 多轮追问:传画像 + 已问历史,返回下一题或 done(real 模式走 LLM,放宽超时)。 */
+/** 多轮追问:传画像 + 已问历史,返回下一题或 done(直连 DeepSeek,失败回退 mock 题库)。 */
 export function generateFollowup(profile: ExploreProfile, history: FollowupTurn[] = []): Promise<FollowupResponse> {
-  return request<FollowupResponse>("/explore/followup", { method: "POST", body: { profile, history }, timeoutMs: EXPLORE_AI_TIMEOUT_MS });
+  return aiGenerateFollowup(profile, history);
 }
 
-/** POST /explore/confirm —— 确认画像。 */
+/** 确认画像 —— 原样回传。 */
 export function confirmProfile(profile: ExploreProfile): Promise<ExploreProfile> {
-  return request<ExploreProfile>("/explore/confirm", { method: "POST", body: profile });
+  return Promise.resolve(profile);
 }
 
-/** POST /explore/generate-result —— 生成方向推荐结果(real 模式走 LLM,放宽超时)。 */
-export function generateExploreResult(profile?: ExploreProfile): Promise<ExploreResult> {
-  return request<ExploreResult>("/explore/generate-result", { method: "POST", body: profile, timeoutMs: EXPLORE_AI_TIMEOUT_MS });
+/**
+ * 生成方向推荐结果(直连 DeepSeek)。
+ * 缓存短路:若本次画像已生成过(store.exploreExtras 非空),直接用 store 的 directions + extras 组装返回,
+ * 避免每次进 result 屏都真烧一次 DeepSeek(对齐原后端 peek 缓存)。
+ */
+export async function generateExploreResult(profile?: ExploreProfile): Promise<ExploreResult> {
+  const store = useAppStore.getState();
+  if (store.exploreExtras && store.directions.length > 0) {
+    return { ...store.exploreExtras, directions: store.directions };
+  }
+  const resolved = profile ?? store.profile;
+  const result = await aiGenerateExploreResult(resolved);
+  // 写回 store 作缓存:更新方向 + 存 extras(下次命中缓存直接返回完整结果)。
+  store.setDirections(result.directions);
+  store.setExploreExtras({
+    conclusion: result.conclusion,
+    transferableAbilities: result.transferableAbilities,
+    notRecommended: result.notRecommended
+  });
+  return result;
 }
 
-/** POST /explore/save-path —— 保存学习路径(后端接收 directionId,populate_by_name 兼容)。 */
+/** 保存学习路径:把选中方向的 weeklyTasks 落入 store,返回当前路径。 */
 export function saveExplorePath(directionId: string): Promise<CurrentPathResponse> {
-  return request<CurrentPathResponse>("/explore/save-path", { method: "POST", body: { directionId } });
+  const store = useAppStore.getState();
+  store.setSelectedDirection(directionId);
+  store.saveCurrentPath();
+  return Promise.resolve(readCurrentPath());
 }
 
-/** GET /explore/current-path —— 当前已保存路径。 */
+/** 读取当前已保存路径(从 store 组装)。 */
 export function getCurrentPath(): Promise<CurrentPathResponse> {
-  return request<CurrentPathResponse>("/explore/current-path");
+  return Promise.resolve(readCurrentPath());
+}
+
+function readCurrentPath(): CurrentPathResponse {
+  const { savedDirectionId, directions, savedTasks } = useAppStore.getState();
+  if (!savedDirectionId) {
+    return { direction: null, tasks: [] };
+  }
+  const direction = directions.find((item) => item.id === savedDirectionId) ?? null;
+  return { direction, tasks: savedTasks };
 }

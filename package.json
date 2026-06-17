@@ -9,5 +9,10 @@
     "mobile:web": "npm --workspace apps/mobile run web",
     "api": "python -m uvicorn app.main:app --reload --app-dir apps/api",
     "typecheck": "npm --workspace apps/mobile run typecheck"
+  },
+  "overrides": {
+    "expo-constants": "~17.1.8",
+    "expo-linking": "~7.1.7",
+    "expo-font": "~13.3.2"
   }
 }
