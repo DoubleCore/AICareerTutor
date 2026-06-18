@@ -4,47 +4,47 @@
 
 ---
 
-## Group A — 多格式面试材料上传(Requirement 1)
+## Group A — 多格式面试材料上传(Requirement 1,分治:PDF/DOCX 端上 + MP3 后端桩)
 
-- [ ] A1. 新增后端依赖与配置项
-  - File: `apps/api/requirements.txt`, `apps/api/app/core/config.py`, `apps/api/.env.example`
-  - 加 `pypdf`(或 `pdfplumber`,实现任务再定)、`python-docx`,锁版本;config 加 `max_upload_mb: int = 10`
-  - Purpose: 为解析层备好依赖与大小上限配置
-  - _Leverage: `apps/api/app/core/config.py`(pydantic-settings 现有范式)_
-  - _Requirements: 1.8_
-  - _Prompt: Role: Python 后端工程师,熟悉 FastAPI 配置与依赖管理 | Task: 在 requirements.txt 加 pdf/docx 解析库(锁定版本)、在 config.py 加 max_upload_mb 配置项(默认 10)、在 .env.example 补占位,遵循仓库「锁版本 / 密钥只进 .env」约定 | Restrictions: 不引入超出 pdf/docx 解析所需的额外依赖,不改 SQLite/Supabase 占位结构 | Success: pip install 成功,config.max_upload_mb 可读,typecheck/后端可启动。先把本任务在 tasks.md 标为 [-],完成后用 log-implementation 记录,再标 [x]_
-
-- [ ] A2. 新增 ExtractResponse schema
-  - File: `apps/api/app/schemas/interview.py`
-  - 加 `ExtractResponse(CamelModel)` { text, source_format, warnings: list[str]=[] }
-  - Purpose: 解析端点的响应契约
-  - _Leverage: `apps/api/app/schemas/common.py`(CamelModel)_
+- [ ] A1. 新增前端解析依赖
+  - File: `apps/mobile/package.json`
+  - 加 `expo-pdf-text-extract`(PDF 原生模块)、`fflate`(DOCX 解 zip,纯 JS);确认 `expo-document-picker` 已在依赖
+  - Purpose: 备好端上 PDF/DOCX 解析所需依赖
+  - _Leverage: 现有 expo 依赖管理_
   - _Requirements: 1.2, 1.3_
-  - _Prompt: Role: Python 后端工程师,熟悉 Pydantic | Task: 在 schemas/interview.py 新增 ExtractResponse(继承 CamelModel,字段 text/source_format/warnings),遵循「schema 即契约 + camelCase 序列化」约定 | Restrictions: 不改动现有 InterviewUpload/InterviewReport 等模型 | Success: 模型可被路由引用,序列化为 camelCase。标 [-] → log-implementation → [x]_
+  - _Prompt: Role: React Native/Expo 前端工程师 | Task: 在 apps/mobile 加 expo-pdf-text-extract 与 fflate(锁版本),确认 expo-document-picker 可用;expo-pdf-text-extract 是原生模块,记录其需 prebuild/EAS 不能在 Expo Go 测 | Restrictions: 不引入超出 PDF/DOCX 解析所需依赖;不动后端依赖 | Success: 依赖装好,typecheck 通过。先把本任务在 tasks.md 标为 [-],完成后用 log-implementation 记录,再标 [x]_
 
-- [ ] A3. 升级 file_service 为 dispatch 层(含 mp3 桩)
-  - File: `apps/api/app/services/file_service.py`
-  - 实现 `extract_text(filename, content)` dispatch + `_extract_plain`(txt/md)+ `extract_pdf` + `extract_docx` + `extract_audio`(`NotImplementedError`);定义 `UnsupportedFormatError`
-  - Purpose: 文件→文本核心逻辑,每格式单一职责;mp3 仅留桩
-  - _Leverage: 新增依赖(pypdf/python-docx);`core/errors.py` 错误信封_
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
-  - _Prompt: Role: Python 后端工程师,熟悉文件解析 | Task: 把 file_service.py 从 no-op 升级为按扩展名 dispatch 的解析层:txt/md 直接解码、pdf 用 pypdf/pdfplumber、docx 用 python-docx、mp3 抛 NotImplementedError(明确中文消息)、未知扩展名抛 UnsupportedFormatError;空文本要能被上层识别 | Restrictions: mp3 绝不埋假实现,只留桩;不在此处理 HTTP 层(交给路由);所有面向用户消息用简体中文 | Success: 各格式样本能抽出文本,mp3/未知格式抛对应异常。标 [-] → log-implementation → [x]_
+- [ ] A2. 新增前端端上解析层 services/fileExtract
+  - File: `apps/mobile/services/fileExtract/index.ts`(新增)
+  - `extractFileText(file)` 按扩展名分发:txt/md(FileReader 路径)、pdf(`extractPdf` 调原生模块)、docx(`extractDocx` 用 fflate 解 zip 取 word/document.xml 文本);返回 `ExtractOutcome`;原生模块缺失/空文本/不支持各自降级
+  - Purpose: 端上 PDF/DOCX→文本核心逻辑,单一职责
+  - _Leverage: 现有 upload.tsx 的 FileReader 读取逻辑(可抽取复用)_
+  - _Requirements: 1.1, 1.2, 1.3, 1.5, 1.6, 1.9_
+  - _Prompt: Role: React Native 前端工程师,熟悉文件解析 | Task: 新建 services/fileExtract/index.ts,实现 extractFileText 分发:txt/md 解码、pdf 用 expo-pdf-text-extract、docx 用 fflate 解压取 word/document.xml 正文;返回 ExtractOutcome 联合类型;捕获原生模块不可用(native_unavailable)、空文本(empty)、不支持(unsupported) | Restrictions: 不做端上 OCR;原生模块缺失要优雅降级不崩;纯函数不读写 store;全中文用户消息交给屏幕层 | Success: docx 样本能抽文本,空内容/缺模块返回对应 reason。标 [-] → log-implementation → [x]_
 
-- [ ] A4. 新增 POST /interview/extract 路由
+- [ ] A3. 后端 MP3 转写桩 + schema
+  - File: `apps/api/app/services/file_service.py`, `apps/api/app/schemas/interview.py`, `apps/api/app/core/config.py`, `apps/api/.env.example`
+  - `file_service.transcribe_audio(content, filename)` 抛 `NotImplementedError`;schemas 加 `TranscribeResponse`;config 加 `max_upload_mb: int = 25`;保留现有 `store_upload_metadata`
+  - Purpose: MP3 后端契约与桩(先流出接口)
+  - _Leverage: `core/errors.py`、`schemas/common.py`(CamelModel)、`core/config.py`_
+  - _Requirements: 1.4, 1.8_
+  - _Prompt: Role: Python 后端工程师 | Task: 在 file_service.py 加 transcribe_audio 桩(抛 NotImplementedError,中文消息),schemas/interview.py 加 TranscribeResponse,config 加 max_upload_mb,.env.example 补占位;保留 store_upload_metadata 不动 | Restrictions: 绝不埋假 ASR 实现;不做 PDF/DOCX(已移至端上) | Success: 桩可被路由引用,config 可读。标 [-] → log-implementation → [x]_
+
+- [ ] A4. 新增 POST /interview/transcribe 路由
   - File: `apps/api/app/api/routes/interview.py`
-  - 接收 `UploadFile`,校验大小(max_upload_mb)→ 调 `file_service.extract_text` → 返回 ExtractResponse;异常映射:UnsupportedFormat→422、NotImplementedError(mp3)→501、空内容→422、超大→413/422
-  - Purpose: 暴露文件解析端点
-  - _Leverage: `services/file_service.py`(A3)、`schemas/interview.py`(A2)、`core/errors.py`_
-  - _Requirements: 1.2, 1.3, 1.4, 1.5, 1.6, 1.8_
-  - _Prompt: Role: FastAPI 路由工程师 | Task: 在 routes/interview.py 新增 POST /interview/extract(multipart UploadFile),做大小校验后调 file_service.extract_text,把领域异常映射为合适的错误信封(422/501/413),成功返回 ExtractResponse;路由不含解析业务逻辑 | Restrictions: 不在路由里写解析逻辑;错误不回显服务器内部细节;沿用现有 register_exception_handlers 风格 | Success: /docs 可见端点,各格式/错误码符合 design。标 [-] → log-implementation → [x]_
+  - 接收 `UploadFile`(.mp3),校验大小(max_upload_mb)→ 调 `file_service.transcribe_audio`;`NotImplementedError`→501、超大→413/422
+  - Purpose: 暴露 MP3 转写端点(本轮返回 501)
+  - _Leverage: `services/file_service.py`(A3)、`schemas/interview.py`(A3)、`core/errors.py`_
+  - _Requirements: 1.4, 1.8_
+  - _Prompt: Role: FastAPI 路由工程师 | Task: 在 routes/interview.py 新增 POST /interview/transcribe(multipart UploadFile),大小校验后调 transcribe_audio,NotImplementedError 映射 501 + 明确文案,超大映射 413/422;路由不含业务逻辑 | Restrictions: 错误不回显服务器内部细节;沿用 register_exception_handlers 风格 | Success: /docs 可见端点,上传 mp3 得 501 错误信封。标 [-] → log-implementation → [x]_
 
-- [ ] A5. 前端上传屏接入文件解析
+- [ ] A5. 前端上传屏接入分治解析
   - File: `apps/mobile/app/interview/upload.tsx`, `apps/mobile/services/interviewApi.ts`
-  - txt/md 仍端上 FileReader 直接读;pdf/docx/mp3 走新增 `extractInterviewFile()`(POST 后端 /interview/extract,需 `EXPO_PUBLIC_API_URL`);更新 `accept` 与提示文案;mp3 显示「暂未支持」明确提示;失败回退手动粘贴
-  - Purpose: 端到端打通多格式上传
-  - _Leverage: `services/apiClient.ts`(baseUrl/超时/错误解析)、现有 `useFilePicker`_
-  - _Requirements: 1.1, 1.4, 1.5, 1.6, 1.7_
-  - _Prompt: Role: React Native/Expo 前端工程师 | Task: 在 upload.tsx 扩展文件选择(accept 加 pdf/docx/mp3),txt/md 保持端上读取,pdf/docx/mp3 调新增 interviewApi.extractInterviewFile() 走后端解析拿回 text 填入 transcript;mp3 返回 501 时显示明确中文提示;任何失败回退到现有手动粘贴路径;文案全部简体中文 | Restrictions: 不破坏现有 txt 端上读取与回退逻辑;baseUrl 缺失时优雅降级;用 constants/theme 的 token 不硬编码样式 | Success: web 选 pdf/docx 能回填文本走完复盘,mp3 有明确提示,typecheck 通过。标 [-] → log-implementation → [x]_
+  - 扩展文件选择(accept 加 pdf/docx/mp3,真机用 expo-document-picker);txt/md/pdf/docx 走 `extractFileText` 端上拿文本填 transcript;mp3 走新增 `interviewApi.transcribeAudio()`(POST 后端,需 `EXPO_PUBLIC_API_URL`);按 ExtractOutcome.reason 显示对应中文提示;任何失败回退手动粘贴
+  - Purpose: 端到端打通分治上传
+  - _Leverage: `services/fileExtract`(A2)、`services/apiClient.ts`、现有 `useFilePicker`_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.9_
+  - _Prompt: Role: React Native/Expo 前端工程师 | Task: 在 upload.tsx 扩展文件选择(pdf/docx/mp3,真机接 expo-document-picker),txt/md/pdf/docx 调 fileExtract.extractFileText 端上解析填 transcript,mp3 调 interviewApi.transcribeAudio 走后端(501 时明确提示);按 reason(unsupported/empty/native_unavailable/backend_unsupported)给不同中文提示;任何失败回退现有手动粘贴;用 theme token | Restrictions: 不破坏现有 txt 端上读取与回退;baseUrl 缺失时 mp3 优雅降级;Expo Go/web 选 pdf 给降级提示不崩 | Success: 正式构建选 pdf/docx 能回填文本走完复盘,mp3 有明确提示,typecheck 通过。标 [-] → log-implementation → [x]_
 
 ---
 
@@ -148,8 +148,8 @@
 
 - [ ] V1. 整体回归与文档
   - File: (验证为主,必要时 `CLAUDE.md` 补注)
-  - 后端 `/docs` 手验新端点;前端 `npm run typecheck`;按 design 的 E2E 清单手测三条主线;清理临时文件
+  - 后端 `/docs` 手验 MP3 端点(返回 501);前端 `npm run typecheck`;按 design 的 E2E 清单手测三条主线(PDF/DOCX 端上解析需正式构建);清理临时文件
   - Purpose: 确保三组协同、不回归
   - _Leverage: `apps/api/smoke_test.py`、`/docs`_
   - _Requirements: All_
-  - _Prompt: Role: 全栈/QA 工程师 | Task: 跑通三条主线手测(多格式上传含 mp3 提示、注册登录贯通 user_id、追问随回答而动 + 承接语),后端 /docs 验证端点,前端 typecheck 通过,清理临时验证文件 | Restrictions: 不破坏现有 mock 回退链路;mp3 仍为桩 | Success: 三条主线均按 design 行为,typecheck 通过。标 [-] → log-implementation → [x]_
+  - _Prompt: Role: 全栈/QA 工程师 | Task: 跑通三条主线手测(PDF/DOCX 端上解析 + mp3 后端 501 提示、注册登录贯通 user_id、追问随回答而动 + 承接语),后端 /docs 验证 transcribe 端点,前端 typecheck 通过,清理临时验证文件 | Restrictions: 不破坏现有 mock 回退链路;mp3 仍为桩;PDF 端上解析需 prebuild/EAS 构建验证 | Success: 三条主线均按 design 行为,typecheck 通过。标 [-] → log-implementation → [x]_

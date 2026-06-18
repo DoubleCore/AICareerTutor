@@ -2,9 +2,11 @@
 
 ## Overview
 
-本设计把三条产品建议落成具体的后端 + 前端改动。核心约束:**混合链路**——文本类 AI 生成留在 App 端直连 DeepSeek,文件解析与账号体系走后端(FastAPI + SQLite)。
+本设计把三条产品建议落成具体的后端 + 前端改动。核心约束:**混合链路 + 文件解析分治**——文本类 AI 生成留在 App 端直连 DeepSeek;**PDF/DOCX 解析在 App 端上完成**;**MP3 转写与账号体系走后端**(FastAPI + SQLite)。
 
-三条相互独立,可分批落地。建议顺序:**多格式上传 → 账号 → 追问优化**(已按此组织任务)。本设计对「先流出接口」的部分(尤其 mp3 ASR、pdf/docx 库选型)只定**契约与桩**,实现细节标注「后续单独议」。
+三条相互独立,可分批落地。建议顺序:**多格式上传 → 账号 → 追问优化**(已按此组织任务)。本设计对「先流出接口」的部分(尤其 MP3 ASR)只定**契约与桩**,实现细节标注「后续单独议」。
+
+> 分治理由(2026 RN 生态核实结果):PDF 有原生模块 `expo-pdf-text-extract`、DOCX 是 zip+XML 可纯 JS 解,端上代价小且保 App 独立;MP3 端上跑 Whisper 在中文面试录音场景代价大(APK 体积、推理慢、中文精度不稳),故走后端云 ASR。
 
 ## Steering Document Alignment
 
@@ -35,7 +37,7 @@
 ### Integration Points
 
 - **DeepSeek 直连(`deepseekClient.ts`)**:追问优化复用现有 `chatJson`(JSON Output 模式),只改 prompt 与解析,无需改传输层。
-- **上传流程(`upload.tsx` → `interviewApi.uploadInterview`)**:新增「文件 → 文本」一步发生在拿到 `transcript` 之前;拿到 text 后原有上传/生成流程零改动。
+- **上传流程(`upload.tsx` → `interviewApi.uploadInterview`)**:PDF/DOCX 端上解析、MP3 后端转写都发生在拿到 `transcript` 之前;拿到 text 后原有上传/生成流程零改动。
 - **DB(SQLite)**:`User` 表与现有 6 张表共库;explore/interview 表的 `user_id` 列已存在,只是值从 `dev-user` 变为真实 id。
 
 ## Architecture
@@ -44,23 +46,25 @@
 
 ```mermaid
 graph TD
-    subgraph App["移动端 (打包后独立运行)"]
+    subgraph App["移动端 (打包后大部分独立运行)"]
         Upload[upload.tsx]
         Followup[followup.tsx]
         AILayer[services/ai 直连 DeepSeek]
+        FileExtract[services/fileExtract<br/>PDF/DOCX 端上解析]
         AuthUI[登录/注册屏 新增]
     end
-    subgraph Backend["FastAPI + SQLite (需部署到真机可达地址)"]
-        Extract[POST /interview/extract<br/>文件→文本]
+    subgraph Backend["FastAPI + SQLite (仅 MP3+账号需要)"]
+        Transcribe[POST /interview/transcribe<br/>MP3→文本 桩]
         Auth[/auth/register /login /me<br/>新增/]
-        FileSvc[file_service dispatch]
+        FileSvc[file_service.transcribe_audio 桩]
         AuthSvc[auth_service + security]
         DB[(SQLite: User + 6张现有表)]
     end
 
-    Upload -->|txt/md 端上直接读| AILayer
-    Upload -->|pdf/docx/mp3| Extract
-    Extract --> FileSvc --> Extract
+    Upload -->|txt/md| AILayer
+    Upload -->|pdf/docx 端上| FileExtract --> Upload
+    Upload -->|mp3| Transcribe
+    Transcribe --> FileSvc
     Followup --> AILayer
     AuthUI --> Auth --> AuthSvc --> DB
     Auth -.JWT.-> App
@@ -68,7 +72,8 @@ graph TD
 
 ### Modular Design Principles
 
-- **解析 dispatch**:`file_service.extract_text(filename, content_bytes)` 按扩展名分发到 `extract_pdf / extract_docx / extract_audio`,每个纯函数单一职责。
+- **端上解析**:`services/fileExtract/index.ts` 按扩展名分发到 `extractPdf / extractDocx`(txt/md 仍走现有 FileReader),每个纯函数单一职责。
+- **后端转写桩**:`file_service.transcribe_audio(content)` 本轮抛 `NotImplementedError`,只留契约。
 - **鉴权分层**:`core/security.py`(密码哈希 + JWT 编解码,无业务)←`services/auth_service.py`(注册/登录业务)←`routes/auth.py`(HTTP)。
 - **追问承接语**:作为可选字段,前后端都「有则用、无则降级」,不破坏旧路径。
 
@@ -76,47 +81,54 @@ graph TD
 
 ## Components and Interfaces
 
-### Component 1 — 文件解析端点 + dispatch(Requirement 1)
+### Component 1 — 多格式上传解析(Requirement 1,分治)
 
-**Purpose:** 接收上传文件,按格式抽取纯文本,统一返回。
+**Purpose:** 把上传文件转成纯文本 `transcript`。PDF/DOCX 端上解析,MP3 走后端转写桩,txt/md 沿用现有端上读取。
+
+#### 1A. 前端端上解析 `apps/mobile/services/fileExtract/`(新增)
+
+```typescript
+// index.ts —— 按扩展名分发
+export async function extractFileText(file: PickedFile): Promise<ExtractOutcome>
+//   txt/md  → 现有 FileReader 路径(沿用)
+//   pdf     → extractPdf(uri)     —— expo-pdf-text-extract 原生模块
+//   docx    → extractDocx(bytes)  —— fflate 解 zip + 取 word/document.xml 文本
+//   mp3     → 交给 interviewApi.transcribeAudio()(走后端,见 1B)
+//   其它    → { ok:false, reason:"unsupported" }
+
+// ExtractOutcome = { ok:true, text, sourceFormat } | { ok:false, reason }
+```
+
+- **extractPdf**:用 `expo-pdf-text-extract`(2026,原生抽文本层)。原生模块在 Expo Go/web 不可用 → 捕获并返回 `{ ok:false, reason:"native_unavailable" }`,上层降级提示。
+- **extractDocx**:docx = zip;用 `fflate` 解压取 `word/document.xml`,正则/轻解析剥 XML 标签得正文。纯 JS,无原生依赖。
+- 空文本(扫描件无文本层等)→ `{ ok:false, reason:"empty" }`,提示换文件/粘贴。
+
+**Interfaces:** `extractFileText(file) -> ExtractOutcome`;`extractPdf`、`extractDocx` 子函数。
+**Dependencies:** `expo-pdf-text-extract`(原生,需 prebuild/EAS)、`fflate`(纯 JS)。
+**Reuses:** 现有 `upload.tsx` 的 `useFilePicker`;`expo-document-picker`(真机选文件,当前 web-only,需补真机选择)。
+
+#### 1B. 后端 MP3 转写端点 + 桩
 
 **新增路由** `apps/api/app/api/routes/interview.py`:
 ```
-POST /interview/extract
-  请求: multipart/form-data, 字段 file (UploadFile)
-  响应: ExtractResponse { text: str, source_format: str, warnings: list[str] }
-  错误: 422(不支持的格式 / 空内容 / 超大文件)、501(mp3 暂未支持)
+POST /interview/transcribe
+  请求: multipart/form-data, 字段 file (UploadFile, .mp3)
+  响应(将来): TranscribeResponse { text: str, warnings: list[str] }
+  本轮: 501 + 明确「语音转写暂未支持」错误信封
 ```
 
-**升级 `services/file_service.py`**(从 no-op 变 dispatch 层):
+**升级 `services/file_service.py`**(只加 MP3 桩,不做 PDF/DOCX):
 ```python
-SUPPORTED_TEXT = {".txt", ".md"}
-SUPPORTED_DOC  = {".pdf", ".docx"}
-SUPPORTED_AUDIO = {".mp3"}
-
-def extract_text(filename: str, content: bytes) -> ExtractResult:
-    """按扩展名 dispatch。返回 {text, source_format, warnings}。"""
-    ext = _ext(filename)
-    if ext in SUPPORTED_TEXT:   return _extract_plain(content, ext)
-    if ext == ".pdf":           return extract_pdf(content)
-    if ext == ".docx":          return extract_docx(content)
-    if ext == ".mp3":           return extract_audio(content)   # 桩
-    raise UnsupportedFormatError(ext)
-
-def extract_pdf(content: bytes) -> ExtractResult: ...   # pypdf / pdfplumber(库选型后续议)
-def extract_docx(content: bytes) -> ExtractResult: ...  # python-docx
-def extract_audio(content: bytes) -> ExtractResult:
-    # 仅留接口桩:本轮不做真实 ASR。
+def transcribe_audio(content: bytes, filename: str) -> TranscribeResult:
+    # 仅留接口桩:本轮不做真实 ASR。将来接云 ASR(讯飞/阿里/腾讯/火山/Whisper-server),key 只进 .env。
     raise NotImplementedError("mp3 语音转写暂未支持")
 ```
 
-**Interfaces:** `extract_text(filename, content) -> ExtractResult`;四个 `extract_*` 子函数。
-**Dependencies:** `pypdf`(或 `pdfplumber`)、`python-docx`(新增 `requirements.txt`,锁版本);txt/md 仅标准库。
-**Reuses:** `core/errors.py` 错误信封;`schemas/interview.py` 加 `ExtractResponse`。
+**Interfaces:** `transcribe_audio(content, filename) -> TranscribeResult`。
+**Dependencies:** 本轮无新增后端依赖(桩);将来按选定 ASR 加。
+**Reuses:** `core/errors.py` 错误信封;`schemas/interview.py` 加 `TranscribeResponse`;`core/config.py` 加 `max_upload_mb`。
 
-> **「先流出接口」的含义**:本组件端点签名 + `file_service` 四个 `extract_*` 桩本轮全部定下、链路打通;pdf/docx **本轮给可用实现**(库成熟、低风险),mp3 **本轮只留桩 + 明确错误**,真实 ASR 选型与接入作为后续独立工作。
-
-**txt/md 说明:** 端上 `FileReader` 已能读纯文本,**默认不经后端**;`extract_text` 仍支持 txt/md,作为后端侧完整性兜底(便于将来非 web 端统一走后端)。
+> **「先流出接口」的含义**:`/interview/transcribe` 端点签名 + `transcribe_audio` 桩本轮定下、链路打通(上传 mp3 能拿到明确的 501),真实 ASR 选型与接入作为后续独立工作。原 `store_upload_metadata`(no-op)保留,不影响现有上传。
 
 ### Component 2 — 账号 / 鉴权(Requirement 2)
 
@@ -200,13 +212,20 @@ class User(SQLModel, table=True):
 - `id` 用 uuid 字符串而非自增 int:对齐 Supabase Auth 的 uuid 主键,日后迁移时 explore/interview 表的 `user_id` 外键语义不变。
 - 现有 6 张表的 `user_id` 列**结构不变**,只是运行时值从 `"dev-user"` 变为真实 uuid。
 
-### ExtractResponse(新增,`apps/api/app/schemas/interview.py`)
+### TranscribeResponse(新增,`apps/api/app/schemas/interview.py`)
 
 ```
-class ExtractResponse(CamelModel):
-  text: str                       # 抽取出的纯文本
-  source_format: str              # txt|md|pdf|docx|mp3
-  warnings: list[str] = []        # 解析告警(如 pdf 部分页无文本层)
+class TranscribeResponse(CamelModel):
+  text: str                       # 转写出的纯文本(将来 ASR 产出;本轮端点返回 501 不产出)
+  warnings: list[str] = []        # 转写告警
+```
+
+### ExtractOutcome(前端,`apps/mobile/services/fileExtract/index.ts`)
+
+```
+type ExtractOutcome =
+  | { ok: true; text: string; sourceFormat: "txt"|"md"|"pdf"|"docx" }
+  | { ok: false; reason: "unsupported"|"empty"|"native_unavailable"|"backend_unsupported"|"error" }
 ```
 
 ### Auth schemas(新增,`apps/api/app/schemas/auth.py`)
@@ -240,38 +259,42 @@ type FollowupResponse = {
 ### Error Scenarios
 
 1. **上传不支持的格式(如 .pages)**
-   - **Handling:** `file_service` 抛 `UnsupportedFormatError` → 路由转 422 错误信封,列出支持格式。
-   - **User Impact:** 上传屏提示「暂仅支持 txt/md/pdf/docx,mp3 即将支持」。
+   - **Handling:** 端上 `extractFileText` 返回 `{ ok:false, reason:"unsupported" }`。
+   - **User Impact:** 上传屏提示「暂支持 txt/md/pdf/docx,mp3 即将支持」,保留手动粘贴。
 
 2. **mp3 上传(本轮)**
-   - **Handling:** `extract_audio` 抛 `NotImplementedError` → 路由转 501 + 明确文案。
+   - **Handling:** App 调后端 `/interview/transcribe`,后端 `transcribe_audio` 抛 `NotImplementedError` → 501 + 明确文案;App 收到映射为 `backend_unsupported`。
    - **User Impact:** 「语音转写功能即将上线,当前可先上传文本或粘贴」。
 
-3. **pdf/docx 解析出空文本(扫描件无文本层等)**
-   - **Handling:** 返回 `text=""` + warnings;前端检测空 → 提示。
+3. **PDF/DOCX 端上解析出空文本(扫描件无文本层等)**
+   - **Handling:** `extractFileText` 返回 `{ ok:false, reason:"empty" }`(本轮不做端上 OCR)。
    - **User Impact:** 「未能从文件中提取到文字,请换文件或直接粘贴」。
 
-4. **超大文件**
-   - **Handling:** 路由/中间件按 `max_upload_mb` 拒绝 → 413/422。
+4. **PDF 原生模块在当前环境不可用(Expo Go / web)**
+   - **Handling:** `extractPdf` 捕获原生模块缺失 → `{ ok:false, reason:"native_unavailable" }`。
+   - **User Impact:** 「该格式需在正式 App 内使用,或直接粘贴文本」,不崩溃。
+
+5. **MP3 超大文件**
+   - **Handling:** 后端按 `max_upload_mb` 拒绝 → 413/422。
    - **User Impact:** 「文件过大,请压缩或截取关键片段」。
 
-5. **注册邮箱已存在**
+6. **注册邮箱已存在**
    - **Handling:** `auth_service.register` 查唯一性 → 抛冲突 → 409/统一错误码。
    - **User Impact:** 「该邮箱已注册,请直接登录」。
 
-6. **登录失败(用户不存在 or 密码错)**
+7. **登录失败(用户不存在 or 密码错)**
    - **Handling:** 统一返回鉴权失败,不区分原因(防枚举)。
    - **User Impact:** 「邮箱或密码不正确」。
 
-7. **JWT 无效/过期**
+8. **JWT 无效/过期**
    - **Handling:** 鉴权依赖抛 401。
    - **User Impact:** 前端清登录态、跳登录屏。
 
-8. **JWT secret 未配置**
+9. **JWT secret 未配置**
    - **Handling:** 启动期校验缺失即报错,绝不用硬编码默认。
    - **User Impact:** 部署者在日志看到明确配置提示(对终端用户不可见)。
 
-9. **AI 追问调用失败/超时**
+10. **AI 追问调用失败/超时**
    - **Handling:** 沿用现有 `try/catch` → 本地 mock 题库回退;`reply` 缺失则只渲染问题。
    - **User Impact:** 对话不卡死,体验降级但不中断。
 
@@ -281,18 +304,19 @@ type FollowupResponse = {
 
 ### Unit Testing
 
-- **file_service**:对 txt/md/pdf/docx 各备一个小样本文件,断言 `extract_text` 返回非空文本;mp3 断言抛 `NotImplementedError`;未知扩展名断言抛 `UnsupportedFormatError`。
+- **前端 fileExtract**:对 docx 小样本断言 `extractDocx` 返回非空文本;空内容样本断言 `{ ok:false, reason:"empty" }`;PDF 原生模块缺失时断言降级为 `native_unavailable`(可 mock 原生模块)。
+- **后端 file_service**:`transcribe_audio` 断言抛 `NotImplementedError`。
 - **core/security**:`hash_password`/`verify_password` 往返;`create/decode_access_token` 往返 + 过期 token 解码返回 None。
 - 若后端引入 pytest,放 `apps/api/tests/`;否则用 `smoke_test.py` 同款手测脚本验证。
 
 ### Integration Testing
 
-- **解析端点**:对运行中的 uvicorn 用 `/docs` 或脚本 POST 各格式文件,验证响应与错误码。
+- **MP3 端点**:对运行中的 uvicorn 用 `/docs` 或脚本 POST 一个 mp3,验证返回 501 + 错误信封。
 - **鉴权流**:register → login → 带 token 调 `/auth/me` 与一个 explore 端点,验证 user_id 正确贯通;不带 token 验证回退 `DEV_USER_ID` 仍可用。
 
 ### End-to-End Testing(前端,手动)
 
-- 上传屏:web 选 pdf/docx → 文本回填 → 走完复盘;mp3 → 看到明确提示。
+- 上传屏:**正式构建(prebuild/EAS)** 选 pdf/docx → 端上解析文本回填 → 走完复盘;mp3 → 看到明确提示;Expo Go/web 选 pdf → 看到「需正式 App」降级提示不崩。
 - 追问屏:故意答非所问 → 观察 AI 是否拉回 + 承接语是否出现;断网 → 回退 mock 不卡死。
 - 登录/注册屏:注册 → 登录 → 「我的」页显示真实昵称。
 - 全程 `npm run typecheck` 通过。
