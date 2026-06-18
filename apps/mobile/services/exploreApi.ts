@@ -31,6 +31,7 @@ export type FollowupTurn = {
 };
 
 export type FollowupResponse = {
+  reply?: string; // 承接语:对用户上一句的简短回应(可选)
   question: FollowupQuestion | null; // null + done=true 表示结束
   done: boolean;
 };

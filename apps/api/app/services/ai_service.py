@@ -526,11 +526,13 @@ def _interview_analysis_input_schema() -> dict:
 def _followup_input_schema() -> dict:
     """单题追问的 JSON Schema(camelCase,供 Claude tool-use 约束输出)。
 
-    {question: {id, question} | 省略, done: bool}。信息足够或达上限时 done=true 且不给 question。
+    {reply: 承接语(可空), question: {id, question} | 省略, done: bool}。
+    信息足够或达上限时 done=true 且不给 question。reply 为对用户上一句的简短承接。
     """
     return {
         "type": "object",
         "properties": {
+            "reply": {"type": "string", "description": "对用户上一句的一句话承接,不超过 30 个中文字符;首轮可为空串"},
             "question": {
                 "type": "object",
                 "description": "下一个追问;若 done=true 可省略",

@@ -239,13 +239,18 @@ def build_explore_json_prompt(profile) -> str:
 FOLLOWUP_SYSTEM_PROMPT = (
     "你是一位温和、敏锐的 AI 职业探索教练,正在与用户进行多轮对话式追问。"
     "用户会提供一份自我画像,以及到目前为止已经问过的问答历史。"
-    "请基于画像 + 历史,生成**下一个**最有价值的追问,通过工具调用返回结构化结果。\n"
+    "请基于画像 + 历史,先用一句话承接用户上一句的回答,再生成**下一个**最有价值的追问,通过工具调用返回结构化结果。\n"
     "要求:\n"
-    "1. 只问一个问题,且绝不重复历史里已问过的内容;要顺着用户已有回答继续深入。\n"
-    "2. 优先追问能帮助判断职业方向的证据,例如成就感来源、可迁移能力、现实约束边界。\n"
-    "3. 语气像自然对话,单个问题不超过 40 个中文字符。\n"
-    "4. 若画像信息已足够、或已问满 6 轮,则返回 done=true 且不再给问题(question 留空)。\n"
-    "5. 所有文案使用简体中文。问题含短横线英文 id(如 work-proof)与 question 文本。"
+    "1. reply:一句话承接(不超过 30 个中文字符),自然回应用户上一句;首轮(还没有任何回答)时 reply 可为空串。\n"
+    "2. 只问一个问题,且绝不重复历史里已问过的内容;要顺着用户已有回答继续深入。\n"
+    "3. 处理答非所问:\n"
+    "   - 若用户上一句跑题或与所问无关,reply 先温和把话题接住,question 换一种说法把上一个意图重新问清楚,而不是直接抛新问题。\n"
+    "   - 若回答信息量过低(如「不知道」「随便」「都行」),question 换一个更具体、更好回答的小角度重新问(如给两三个选项让其选)。\n"
+    "   - 若用户在回答里反问你,reply 先简短回应他的反问,再用 question 自然地把话题引导回职业探索。\n"
+    "4. 优先追问能帮助判断职业方向的证据,例如成就感来源、可迁移能力、现实约束边界。\n"
+    "5. 语气像自然对话,单个问题不超过 40 个中文字符。\n"
+    "6. 若画像信息已足够、或已问满 6 轮,则返回 done=true 且不再给问题(question 留空,reply 可给一句收尾)。\n"
+    "7. 所有文案使用简体中文。问题含短横线英文 id(如 work-proof)与 question 文本。"
 )
 
 
@@ -265,11 +270,14 @@ def build_followup_user_prompt(profile, history) -> str:
     return (
         f"{base}"
         f"已问问答历史(共 {len(history)} 轮):\n{_format_followup_history(history)}\n\n"
-        "请基于以上画像与历史,生成下一个追问;若信息已足够或已问满 6 轮,返回 done=true。"
+        "请基于以上画像与历史,先用一句话承接用户上一句(reply),再生成下一个追问;"
+        "若用户跑题/答非所问/信息过低,reply 接住、question 换个说法重问;"
+        "若信息已足够或已问满 6 轮,返回 done=true。"
     )
 
 
 _FOLLOWUP_JSON_EXAMPLE = """{
+  "reply": "听起来你挺看重能快速看到成果,这点很重要。",
   "question": {"id": "work-proof", "question": "你提到的这些事里,哪一类最让你有成就感?"},
   "done": false
 }"""
@@ -281,7 +289,8 @@ def build_followup_json_prompt(profile, history) -> str:
     return (
         f"{base}\n\n"
         "请只输出一个合法的 json 对象,不要任何额外文字或 markdown 代码块。"
-        "字段严格按下面的示例(question 含短横线英文 id 与 question 文本;"
+        "字段严格按下面的示例(reply 为承接语 ≤30 字、首轮可为空;question 含短横线英文 id 与 question 文本;"
+        "若用户跑题/答非所问/信息过低,reply 接住、question 换个说法重问;"
         "若信息足够或已问满 6 轮,done 为 true 且 question 为 null):\n"
         f"{_FOLLOWUP_JSON_EXAMPLE}"
     )

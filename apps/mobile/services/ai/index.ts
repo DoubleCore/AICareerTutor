@@ -44,6 +44,7 @@ export type ExploreResult = {
 };
 
 export type FollowupResponse = {
+  reply?: string; // 承接语:对用户上一句的简短回应(可选;首轮或缺失时为空)
   question: FollowupQuestion | null;
   done: boolean;
 };
@@ -81,12 +82,13 @@ export async function aiGenerateFollowup(profile: ExploreProfile, history: Follo
     const payload = (await chatJson({
       system: FOLLOWUP_SYSTEM_PROMPT,
       user: buildFollowupJsonPrompt(profile, history)
-    })) as { question?: { id?: string; question?: string } | null; done?: boolean };
+    })) as { reply?: unknown; question?: { id?: string; question?: string } | null; done?: boolean };
+    const reply = typeof payload?.reply === "string" && payload.reply.trim() ? payload.reply.trim() : undefined;
     const q = payload?.question;
     if (q && typeof q.id === "string" && typeof q.question === "string" && q.question.trim()) {
-      return { question: { id: q.id, question: q.question }, done: false };
+      return { reply, question: { id: q.id, question: q.question }, done: false };
     }
-    return { question: null, done: true };
+    return { reply, question: null, done: true };
   } catch {
     return mockFollowupAt(turnCount);
   }

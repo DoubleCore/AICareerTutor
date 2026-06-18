@@ -220,6 +220,8 @@ export default function Followup() {
 
   // 多轮对话状态:questions 逐轮 push(每轮一题)、history 累积已问问答对、done 结束标志。
   const [questions, setQuestions] = useState<{ id: string; question: string }[]>([]);
+  // 承接语:与 questions 同下标对齐(replies[i] 是 questions[i] 之前 AI 对上一句的回应,可空)。
+  const [replies, setReplies] = useState<(string | undefined)[]>([]);
   const [history, setHistory] = useState<FollowupTurn[]>([]);
   const [done, setDone] = useState(false);
 
@@ -243,6 +245,7 @@ export default function Followup() {
           setDone(true);
         } else {
           setQuestions((prev) => [...prev, resp.question!]);
+          setReplies((prev) => [...prev, resp.reply]);
         }
       } catch (err: unknown) {
         const reason = err instanceof ApiError ? `${err.code}: ${err.message}` : String(err);
@@ -251,6 +254,7 @@ export default function Followup() {
         const fallback = localFallbackQuestions[currentHistory.length];
         if (currentHistory.length === 0 && fallback) {
           setQuestions([fallback]);
+          setReplies([undefined]);
         } else {
           setDone(true);
         }
@@ -442,6 +446,7 @@ export default function Followup() {
               <View key={question.id} style={styles.thread}>
                 <ChatMessage from="ai">
                   <Text style={styles.bubbleMeta}>补充问题 {questionIndex + 1}</Text>
+                  {replies[questionIndex] ? <Text style={styles.bubbleReply}>{replies[questionIndex]}</Text> : null}
                   <Text style={styles.bubbleTitle}>{question.question}</Text>
                 </ChatMessage>
                 {answers[questionIndex] ? (
@@ -496,6 +501,7 @@ const styles = StyleSheet.create({
   aiMessage: { width: "100%", padding: spacing.lg, borderRadius: radius.xl, backgroundColor: "#F4F5F7", borderWidth: 1, borderColor: "#EEF0F4" },
   userBubble: { maxWidth: "86%", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: 22, backgroundColor: "#0EA5FF" },
   bubbleMeta: { color: colors.muted, fontSize: 12, fontWeight: "400" },
+  bubbleReply: { color: colors.text, fontSize: 14, lineHeight: 21, fontWeight: "400" },
   bubbleTitle: { color: colors.text, fontSize: 16, fontWeight: "400", lineHeight: 24 },
   bubbleText: { color: colors.muted, fontSize: 14, lineHeight: 22 },
   userBubbleText: { color: "#fff" },

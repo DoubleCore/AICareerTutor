@@ -118,7 +118,7 @@
 
 ## Group C — 对话式追问「随回答而动」(Requirement 3)
 
-- [ ] C1. 改前端追问 prompt(实际生效)
+- [x] C1. 改前端追问 prompt(实际生效)
   - File: `apps/mobile/services/ai/prompts.ts`
   - `FOLLOWUP_SYSTEM_PROMPT` 加跑题/低信息/反问策略;`FOLLOWUP_JSON_EXAMPLE` 与 `buildFollowupJsonPrompt` 加 `reply` 承接语字段
   - Purpose: 让独立 App 的追问随回答而动
@@ -126,7 +126,7 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
   - _Prompt: Role: Prompt 工程师,熟悉中文对话设计 | Task: 在 prompts.ts 的追问 system prompt 增加策略(跑题温和拉回/低信息换角度重问/反问先回应再引导),并在 JSON 示例与 builder 中加可空的 reply 承接语字段(≤30字);保持 JSON Output 要求(出现 "json" 字样) | Restrictions: 保留 6 轮上限与 done 语义;reply 必须可空;全中文 | Success: 示例含 reply,prompt 含三类策略。标 [-] → log-implementation → [x]_
 
-- [ ] C2. 后端追问 prompt 同步对齐
+- [x] C2. 后端追问 prompt 同步对齐
   - File: `apps/api/app/utils/prompts.py`
   - `FOLLOWUP_SYSTEM_PROMPT` / `_FOLLOWUP_JSON_EXAMPLE` / `build_followup_json_prompt` 同步 C1 的策略与 reply 字段
   - Purpose: 保持前后端 prompt 对齐(后端日后接回时一致)
@@ -134,7 +134,7 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4_
   - _Prompt: Role: Python 后端工程师 | Task: 把 utils/prompts.py 的追问 prompt 与 JSON 示例同步成与前端 prompts.ts 一致(策略 + reply 字段) | Restrictions: 与前端措辞保持一致;不改其它 prompt | Success: 前后端追问 prompt 一致。标 [-] → log-implementation → [x]_
 
-- [ ] C3. 前端解析 + 渲染承接语
+- [x] C3. 前端解析 + 渲染承接语
   - File: `apps/mobile/services/ai/index.ts`, `apps/mobile/services/exploreApi.ts`, `apps/mobile/app/explore/followup.tsx`
   - `FollowupResponse` 加 `reply?: string`;`aiGenerateFollowup` 取出 reply 返回;followup 屏 AI 气泡渲染 reply(有则显示)
   - Purpose: 承接语端到端可见
