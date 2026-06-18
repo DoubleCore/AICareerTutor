@@ -1,11 +1,13 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Image, ImageSourcePropType, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ConfirmDialog, Screen } from "@/components/ui/primitives";
 import { colors, radius, spacing } from "@/constants/theme";
 import { ApiError } from "@/services/apiClient";
-import { uploadInterview } from "@/services/interviewApi";
+import { extractFileText } from "@/services/fileExtract";
+import { transcribeAudio, uploadInterview } from "@/services/interviewApi";
 
 type IconName = React.ComponentProps<typeof MaterialIcons>["name"];
 
@@ -22,8 +24,9 @@ export default function InterviewUpload() {
   const [company, setCompany] = useState("字节跳动");
   const [jd, setJd] = useState("负责 AI 产品需求分析、方案设计、跨团队协作和项目落地。");
   const [transcript, setTranscript] = useState("");
-  const pickFile = useFilePicker({ setFileName, setFileError, setTranscript });
-  const canSubmit = transcript.trim().length > 0;
+  const [parsing, setParsing] = useState(false);
+  const pickFile = useFilePicker({ setFileName, setFileError, setTranscript, setParsing });
+  const canSubmit = transcript.trim().length > 0 && !parsing;
 
   // P1-04:真实提交上传,拿到后端生成的 sessionId 并透传给分析页;失败回退 mock-session 保证演示不中断。
   const handleStart = async () => {
@@ -61,7 +64,7 @@ export default function InterviewUpload() {
           <Text style={styles.subtitle}>上传面试录音、转录文本或你的面试记录，AI 会结合岗位要求帮你生成复盘报告。</Text>
         </View>
 
-        <UploadPanel fileName={fileName} fileError={fileError} onPress={pickFile} />
+        <UploadPanel fileName={fileName} fileError={fileError} parsing={parsing} onPress={pickFile} />
 
         <View style={styles.formCard}>
           <View style={styles.cardHeader}>
@@ -85,21 +88,22 @@ export default function InterviewUpload() {
   );
 }
 
-function UploadPanel({ fileName, fileError, onPress }: { fileName: string; fileError: string; onPress: () => void }) {
+function UploadPanel({ fileName, fileError, parsing, onPress }: { fileName: string; fileError: string; parsing: boolean; onPress: () => void }) {
   const selected = fileName.length > 0;
+  const titleText = parsing ? "正在解析文件…" : selected ? `已选择 ${fileName}` : "上传面试资料";
   return (
     <View style={styles.uploadShell}>
-      <Pressable onPress={onPress} style={[styles.uploadDropzone, selected ? styles.uploadDropzoneSelected : null]}>
+      <Pressable onPress={parsing ? undefined : onPress} style={[styles.uploadDropzone, selected ? styles.uploadDropzoneSelected : null]}>
         <View style={styles.cloudWrap}>
           <View style={styles.cloudSparkOne} />
           <View style={styles.cloudSparkTwo} />
           <Image source={uploadIcon} style={styles.uploadIconImage} resizeMode="contain" />
         </View>
-        <Text style={[styles.uploadTitle, selected ? styles.uploadTitleSelected : null]} numberOfLines={1}>{selected ? `已选择 ${fileName}` : "上传文本文件"}</Text>
-        <Text style={styles.uploadSubtitle}>( 仅支持 TXT 文本,内容会填入下方文本框 )</Text>
+        <Text style={[styles.uploadTitle, selected ? styles.uploadTitleSelected : null]} numberOfLines={1}>{titleText}</Text>
+        <Text style={styles.uploadSubtitle}>( 支持 TXT / MD / PDF / DOCX,内容会填入下方文本框;MP3 录音转写即将上线 )</Text>
         <View style={styles.fileButton}>
           <MaterialIcons name="folder-open" size={24} color="#fff" />
-          <Text style={styles.fileButtonText}>{selected ? "重新选择文件" : "选择文件"}</Text>
+          <Text style={styles.fileButtonText}>{parsing ? "解析中…" : selected ? "重新选择文件" : "选择文件"}</Text>
         </View>
         {fileError ? (
           <View style={styles.privacyLine}>
@@ -137,55 +141,106 @@ function StartButton({ enabled, onPress }: { enabled: boolean; onPress: () => vo
 }
 
 /**
- * 文件选择(P1:真实读取,取代原来的假 selected 状态)。
- * - web:用隐藏的原生 <input type="file"> 触发系统选择框,FileReader 读为纯文本回填 transcript。
- *   仅接受 .txt(纯文本零依赖、最稳);其它类型给出明确提示,不进入"已选择"。
- * - 非 web(真机 Expo Go):暂未接 expo-document-picker,提示用户直接粘贴文本。
+ * 文件选择 + 端上/后端分治解析(A5)。
+ * - 跨平台用 expo-document-picker 选文件(取代原 web-only 的隐藏 input)。
+ * - txt/md/pdf/docx:走 services/fileExtract 端上解析,文本回填 transcript。
+ * - mp3:走 interviewApi.transcribeAudio()(后端,本轮返回 501 桩),按错误码提示。
+ * - 任何失败都给明确中文提示,并保留「下方手动粘贴」这条不中断的兜底路径。
  */
-function useFilePicker({ setFileName, setFileError, setTranscript }: { setFileName: (v: string) => void; setFileError: (v: string) => void; setTranscript: (v: string) => void }) {
-  if (Platform.OS !== "web") {
-    return () => setFileError("当前平台暂不支持选文件,请直接在下方粘贴面试文本。");
-  }
+const ACCEPTED_EXTS = ["txt", "md", "pdf", "docx", "mp3"];
+const PICKER_TYPES = [
+  "text/plain",
+  "text/markdown",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "audio/mpeg",
+];
 
-  return () => {
-    // 每次点击创建一次性 input,读完即从 DOM 移除 —— 避免常驻 input 被反复捕获。
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".txt,text/plain";
-    input.style.display = "none";
-    const cleanup = () => input.remove();
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      if (!file) {
-        cleanup();
-        return;
-      }
-      const isTxt = file.name.toLowerCase().endsWith(".txt") || file.type === "text/plain";
-      if (!isTxt) {
-        setFileError("暂仅支持 TXT 文本文件,其它格式请粘贴文本。");
-        cleanup();
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = typeof reader.result === "string" ? reader.result : "";
-        if (!text.trim()) {
-          setFileError("文件内容为空,请换一个文件或直接粘贴。");
-        } else {
-          setFileError("");
-          setFileName(file.name);
+function extOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/** ExtractOutcome.reason → 用户可读中文提示。 */
+function reasonMessage(reason: string): string {
+  switch (reason) {
+    case "unsupported":
+      return "暂仅支持 TXT / MD / PDF / DOCX,其它格式请直接粘贴文本。";
+    case "empty":
+      return "未能从文件中提取到文字（可能是扫描件),请换文件或直接粘贴。";
+    case "native_unavailable":
+      return "PDF 解析需在正式 App 内使用(当前环境不支持),请直接粘贴文本。";
+    default:
+      return "文件解析失败,请重试或直接粘贴文本。";
+  }
+}
+
+function useFilePicker({
+  setFileName,
+  setFileError,
+  setTranscript,
+  setParsing,
+}: {
+  setFileName: (v: string) => void;
+  setFileError: (v: string) => void;
+  setTranscript: (v: string) => void;
+  setParsing: (v: boolean) => void;
+}) {
+  return async () => {
+    let picked: DocumentPicker.DocumentPickerResult;
+    try {
+      picked = await DocumentPicker.getDocumentAsync({ type: PICKER_TYPES, copyToCacheDirectory: true, multiple: false });
+    } catch {
+      setFileError("打开文件选择器失败,请重试或直接粘贴文本。");
+      return;
+    }
+    if (picked.canceled) return;
+    const asset = picked.assets[0];
+    if (!asset) return;
+
+    const ext = extOf(asset.name);
+    if (!ACCEPTED_EXTS.includes(ext)) {
+      setFileError(reasonMessage("unsupported"));
+      return;
+    }
+
+    setFileError("");
+    setParsing(true);
+    try {
+      if (ext === "mp3") {
+        // MP3 走后端转写(本轮 501 桩)。成功则回填 text;失败按 ApiError.code 提示。
+        try {
+          const { text } = await transcribeAudio({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
+          if (!text.trim()) {
+            setFileError("未识别到有效语音,请换文件或直接粘贴。");
+            return;
+          }
+          setFileName(asset.name);
           setTranscript(text);
+        } catch (err: unknown) {
+          const code = err instanceof ApiError ? err.code : "";
+          if (code === "asr_not_implemented") {
+            setFileError("语音转写功能即将上线,当前可先粘贴面试文本。");
+          } else if (code === "file_too_large") {
+            setFileError("音频文件过大,请压缩或截取关键片段。");
+          } else {
+            setFileError("语音转写服务暂不可用,请直接粘贴文本。");
+          }
         }
-        cleanup();
-      };
-      reader.onerror = () => {
-        setFileError("读取文件失败,请重试或直接粘贴文本。");
-        cleanup();
-      };
-      reader.readAsText(file, "utf-8");
-    });
-    document.body.appendChild(input);
-    input.click();
+        return;
+      }
+
+      // txt/md/pdf/docx:端上解析。
+      const outcome = await extractFileText({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
+      if (outcome.ok) {
+        setFileName(asset.name);
+        setTranscript(outcome.text);
+      } else {
+        setFileError(reasonMessage(outcome.reason));
+      }
+    } finally {
+      setParsing(false);
+    }
   };
 }
 

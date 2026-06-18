@@ -1,5 +1,7 @@
 from typing import Literal
 
+from pydantic import Field
+
 from app.schemas.common import CamelModel
 
 TaskStatus = Literal["未开始", "进行中", "已完成"]
@@ -16,6 +18,17 @@ class InterviewUpload(CamelModel):
 class UploadResponse(CamelModel):
     session_id: str
     status: str = "uploaded"
+
+
+class TranscribeResponse(CamelModel):
+    """MP3 语音转写结果(纯文本)。
+
+    本轮 /interview/transcribe 仅留接口桩(返回 501),暂不产出该响应;
+    真实方案(阿里云 Paraformer)见 spec mp3-asr-aliyun.md,届时填充 text。
+    """
+
+    text: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class AnalysisStatusResponse(CamelModel):

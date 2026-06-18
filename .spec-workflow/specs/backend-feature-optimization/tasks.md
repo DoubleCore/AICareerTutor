@@ -6,7 +6,7 @@
 
 ## Group A — 多格式面试材料上传(Requirement 1,分治:PDF/DOCX 端上 + MP3 后端桩)
 
-- [ ] A1. 新增前端解析依赖
+- [x] A1. 新增前端解析依赖
   - File: `apps/mobile/package.json`
   - 加 `expo-pdf-text-extract`(PDF 原生模块)、`fflate`(DOCX 解 zip,纯 JS);确认 `expo-document-picker` 已在依赖
   - Purpose: 备好端上 PDF/DOCX 解析所需依赖
@@ -14,7 +14,7 @@
   - _Requirements: 1.2, 1.3_
   - _Prompt: Role: React Native/Expo 前端工程师 | Task: 在 apps/mobile 加 expo-pdf-text-extract 与 fflate(锁版本),确认 expo-document-picker 可用;expo-pdf-text-extract 是原生模块,记录其需 prebuild/EAS 不能在 Expo Go 测 | Restrictions: 不引入超出 PDF/DOCX 解析所需依赖;不动后端依赖 | Success: 依赖装好,typecheck 通过。先把本任务在 tasks.md 标为 [-],完成后用 log-implementation 记录,再标 [x]_
 
-- [ ] A2. 新增前端端上解析层 services/fileExtract
+- [x] A2. 新增前端端上解析层 services/fileExtract
   - File: `apps/mobile/services/fileExtract/index.ts`(新增)
   - `extractFileText(file)` 按扩展名分发:txt/md(FileReader 路径)、pdf(`extractPdf` 调原生模块)、docx(`extractDocx` 用 fflate 解 zip 取 word/document.xml 文本);返回 `ExtractOutcome`;原生模块缺失/空文本/不支持各自降级
   - Purpose: 端上 PDF/DOCX→文本核心逻辑,单一职责
@@ -22,7 +22,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.5, 1.6, 1.9_
   - _Prompt: Role: React Native 前端工程师,熟悉文件解析 | Task: 新建 services/fileExtract/index.ts,实现 extractFileText 分发:txt/md 解码、pdf 用 expo-pdf-text-extract、docx 用 fflate 解压取 word/document.xml 正文;返回 ExtractOutcome 联合类型;捕获原生模块不可用(native_unavailable)、空文本(empty)、不支持(unsupported) | Restrictions: 不做端上 OCR;原生模块缺失要优雅降级不崩;纯函数不读写 store;全中文用户消息交给屏幕层 | Success: docx 样本能抽文本,空内容/缺模块返回对应 reason。标 [-] → log-implementation → [x]_
 
-- [ ] A3. 后端 MP3 转写桩 + schema
+- [x] A3. 后端 MP3 转写桩 + schema
   - File: `apps/api/app/services/file_service.py`, `apps/api/app/schemas/interview.py`, `apps/api/app/core/config.py`, `apps/api/.env.example`
   - `file_service.transcribe_audio(content, filename)` 抛 `NotImplementedError`;schemas 加 `TranscribeResponse`;config 加 `max_upload_mb: int = 25`;保留现有 `store_upload_metadata`
   - Purpose: MP3 后端契约与桩(先流出接口)
@@ -30,7 +30,7 @@
   - _Requirements: 1.4, 1.8_
   - _Prompt: Role: Python 后端工程师 | Task: 在 file_service.py 加 transcribe_audio 桩(抛 NotImplementedError,中文消息),schemas/interview.py 加 TranscribeResponse,config 加 max_upload_mb,.env.example 补占位;保留 store_upload_metadata 不动 | Restrictions: 绝不埋假 ASR 实现;不做 PDF/DOCX(已移至端上) | Success: 桩可被路由引用,config 可读。标 [-] → log-implementation → [x]_
 
-- [ ] A4. 新增 POST /interview/transcribe 路由
+- [x] A4. 新增 POST /interview/transcribe 路由
   - File: `apps/api/app/api/routes/interview.py`
   - 接收 `UploadFile`(.mp3),校验大小(max_upload_mb)→ 调 `file_service.transcribe_audio`;`NotImplementedError`→501、超大→413/422
   - Purpose: 暴露 MP3 转写端点(本轮返回 501)
@@ -38,7 +38,7 @@
   - _Requirements: 1.4, 1.8_
   - _Prompt: Role: FastAPI 路由工程师 | Task: 在 routes/interview.py 新增 POST /interview/transcribe(multipart UploadFile),大小校验后调 transcribe_audio,NotImplementedError 映射 501 + 明确文案,超大映射 413/422;路由不含业务逻辑 | Restrictions: 错误不回显服务器内部细节;沿用 register_exception_handlers 风格 | Success: /docs 可见端点,上传 mp3 得 501 错误信封。标 [-] → log-implementation → [x]_
 
-- [ ] A5. 前端上传屏接入分治解析
+- [x] A5. 前端上传屏接入分治解析
   - File: `apps/mobile/app/interview/upload.tsx`, `apps/mobile/services/interviewApi.ts`
   - 扩展文件选择(accept 加 pdf/docx/mp3,真机用 expo-document-picker);txt/md/pdf/docx 走 `extractFileText` 端上拿文本填 transcript;mp3 走新增 `interviewApi.transcribeAudio()`(POST 后端,需 `EXPO_PUBLIC_API_URL`);按 ExtractOutcome.reason 显示对应中文提示;任何失败回退手动粘贴
   - Purpose: 端到端打通分治上传

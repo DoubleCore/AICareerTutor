@@ -2,6 +2,7 @@ import { InterviewAnalysis, InterviewReport, InterviewUpload, TaskStatus, Traini
 import { interviewAnalysis as mockAnalysis, interviewReport as mockReport, trainingTasks as mockTasks } from "@/data/mockData";
 import { useAppStore } from "@/store/useAppStore";
 import { aiGenerateInterview } from "./ai";
+import { API_BASE_URL, ApiError } from "./apiClient";
 
 /**
  * 面试接口。App 独立化后不再走后端 —— 上传内容存进 store,生成走 DeepSeek 直连。
@@ -43,6 +44,66 @@ export function uploadInterview(payload: Partial<Omit<InterviewUpload, "sessionI
   };
   useAppStore.getState().setInterviewUpload(sessionId, upload);
   return Promise.resolve({ sessionId, status: "idle" });
+}
+
+/** MP3 转写文件(对齐 expo-document-picker asset 的最小形状)。 */
+export type AudioFile = {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+};
+
+export type TranscribeResponse = {
+  text: string;
+  warnings?: string[];
+};
+
+/**
+ * MP3 → 文本:走后端 /interview/transcribe(分治架构里唯一依赖后端的一环)。
+ *
+ * 与其它 AI 调用不同,这里不直连 DeepSeek、也不走 apiClient.request(后者只支持 JSON body),
+ * 而是用 multipart/form-data 上传音频。后端本轮返回 501(桩),真实方案见 spec mp3-asr-aliyun.md。
+ *
+ * 失败统一抛 ApiError(屏幕层据 code 给提示并回退手动粘贴):
+ *   - asr_not_implemented(501):本轮桩,「暂未支持」。
+ *   - file_too_large(413):超大。
+ *   - timeout / network_error:后端不可达(打包后未配 EXPO_PUBLIC_API_URL 也走这里)。
+ */
+export async function transcribeAudio(file: AudioFile, timeoutMs = 120000): Promise<TranscribeResponse> {
+  const form = new FormData();
+  // RN 的 FormData 接受 { uri, name, type } 形状作为文件部件。
+  form.append("file", { uri: file.uri, name: file.name, type: file.mimeType || "audio/mpeg" } as unknown as Blob);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/interview/transcribe`, { method: "POST", body: form, signal: controller.signal });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (controller.signal.aborted) {
+      throw new ApiError({ code: "timeout", message: `转写请求超时(${timeoutMs}ms)`, status: 0 });
+    }
+    throw new ApiError({ code: "network_error", message: err instanceof Error ? err.message : "无法连接转写服务", status: 0, details: err });
+  }
+  clearTimeout(timeoutId);
+
+  const raw = await response.text();
+  let parsed: unknown = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = raw;
+  }
+
+  if (!response.ok) {
+    const env = parsed as { error?: { code?: string; message?: string } } | null;
+    if (env?.error?.code && env.error.message) {
+      throw new ApiError({ code: env.error.code, message: env.error.message, status: response.status });
+    }
+    throw new ApiError({ code: "http_error", message: `转写服务 HTTP ${response.status}`, status: response.status });
+  }
+  return parsed as TranscribeResponse;
 }
 
 /**

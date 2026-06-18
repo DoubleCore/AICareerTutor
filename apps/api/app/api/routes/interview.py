@@ -1,7 +1,9 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
+from app.core.config import settings
+from app.core.errors import AppError
 from app.schemas.common import StatusResponse
-from app.schemas.interview import AnalysisStatusResponse, InterviewAnalysis, InterviewReport, InterviewUpload, TrainingTask, UpdateTrainingTaskRequest, UploadResponse
+from app.schemas.interview import AnalysisStatusResponse, InterviewAnalysis, InterviewReport, InterviewUpload, TrainingTask, TranscribeResponse, UpdateTrainingTaskRequest, UploadResponse
 from app.services import ai_service, file_service, mock_state
 
 router = APIRouter()
@@ -15,6 +17,31 @@ def upload_interview(upload: InterviewUpload) -> UploadResponse:
     stored = file_service.store_upload_metadata(upload)
     session_id = mock_state.upload_interview(stored)
     return UploadResponse(session_id=session_id)
+
+
+@router.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_interview(file: UploadFile = File(...)) -> TranscribeResponse:
+    # 分治架构:PDF/DOCX 端上解析,MP3 走后端云 ASR。本端点本轮仅桩(返回 501),
+    # 真实方案(阿里云 Paraformer:OSS 中转 + 异步轮询)见 spec mp3-asr-aliyun.md。
+    # 先做大小校验(防超大文件拖垮服务),再调 file_service.transcribe_audio 桩。
+    content = await file.read()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise AppError(
+            status_code=413,
+            code="file_too_large",
+            message=f"文件过大,请压缩或截取关键片段(上限 {settings.max_upload_mb}MB)",
+        )
+    try:
+        text = file_service.transcribe_audio(content, file.filename or "audio.mp3")
+    except NotImplementedError as exc:
+        # 501:接口已就绪、实现待接入。给前端明确「暂未支持」反馈,而非静默失败。
+        raise AppError(
+            status_code=501,
+            code="asr_not_implemented",
+            message="语音转写功能即将上线,当前可先上传文本或直接粘贴。",
+        ) from exc
+    return TranscribeResponse(text=text)
 
 
 @router.post("/analyze", response_model=AnalysisStatusResponse)

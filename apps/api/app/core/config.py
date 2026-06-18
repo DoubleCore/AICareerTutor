@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_max_tokens: int = 2000
 
+    # 文件上传 / MP3 转写:单文件大小上限(MB)。/interview/transcribe 据此拒绝超大文件。
+    # 真实 ASR(阿里云 Paraformer)接入见 spec mp3-asr-aliyun.md;本轮端点仅桩。
+    max_upload_mb: int = 25
+
     # P1-08:数据库连接串。默认本地 SQLite(apps/api/career_tutor.db,绝对路径)。
     # 可被 .env 的 DATABASE_URL 覆盖(如 smoke 用临时库、将来迁 Postgres)。
     database_url: str = f"sqlite:///{(_APPS_API_DIR / 'career_tutor.db').as_posix()}"
