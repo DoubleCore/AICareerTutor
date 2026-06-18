@@ -39,7 +39,7 @@
 1. WHEN 用户上传 `.txt` 或 `.md` 文件 THEN App SHALL 在端上直接读为纯文本并填入 `transcript`(不经后端)。
 2. WHEN 用户上传 `.pdf` 文件 THEN App SHALL 在**端上**通过原生模块抽取其文本层并填入 `transcript`(不经后端)。
 3. WHEN 用户上传 `.docx` 文件 THEN App SHALL 在**端上**通过解 zip+XML 抽取其正文文本并填入 `transcript`(不经后端)。
-4. WHEN 用户上传 `.mp3` 文件 THEN App SHALL 将文件上传到**后端** `/interview/transcribe` 端点;本轮后端 SHALL 返回明确的「暂未支持语音转写」错误信封(MP3 仅留接口桩,真实 ASR 后续单独议)。
+4. WHEN 用户上传 `.mp3` 文件 THEN App SHALL 将文件上传到**后端** `/interview/transcribe` 端点;本轮后端 SHALL 返回明确的「暂未支持语音转写」错误信封(MP3 仅留接口桩)。真实方案已选定**阿里云百炼 Paraformer**(只收公网 URL、需 OSS 中转、异步轮询),完整规格见 `mp3-asr-aliyun.md`,待开通 OSS + DashScope 后填实现。
 5. WHEN 端上解析遇到不支持或无法识别的扩展名 THEN App SHALL 提示支持的格式,并保留手动粘贴路径。
 6. IF 端上 PDF/DOCX 解析成功但抽取文本为空(如扫描件无文本层)THEN App SHALL 提示用户换文件或直接粘贴(本轮不做端上 OCR)。
 7. WHEN 任意文件解析或上传失败 THEN App SHALL 保持现有「回退手动粘贴」路径,链路不中断。

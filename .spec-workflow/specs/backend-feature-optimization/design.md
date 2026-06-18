@@ -129,6 +129,8 @@ def transcribe_audio(content: bytes, filename: str) -> TranscribeResult:
 **Reuses:** `core/errors.py` 错误信封;`schemas/interview.py` 加 `TranscribeResponse`;`core/config.py` 加 `max_upload_mb`。
 
 > **「先流出接口」的含义**:`/interview/transcribe` 端点签名 + `transcribe_audio` 桩本轮定下、链路打通(上传 mp3 能拿到明确的 501),真实 ASR 选型与接入作为后续独立工作。原 `store_upload_metadata`(no-op)保留,不影响现有上传。
+>
+> **MP3 真实方案已写实**:选定**阿里云百炼 Paraformer (`paraformer-v2`)**,完整接法(只收公网 URL → 需 OSS 中转 → 异步提交/轮询/下载结果 JSON)、依赖、错误处理、配置项见 [`mp3-asr-aliyun.md`](./mp3-asr-aliyun.md)。本轮代码仍为桩,等开通 OSS + DashScope 后照该文档填实现。
 
 ### Component 2 — 账号 / 鉴权(Requirement 2)
 
