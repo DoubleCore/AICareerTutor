@@ -106,7 +106,7 @@
   - _Requirements: 2.5_
   - _Prompt: Role: FastAPI 工程师 | Task: 给 explore/interview 路由加可选鉴权依赖,把解出的 user_id(无 token 时回退 DEV_USER_ID)透传给 mock_state 的 save_*/get_*;保持未登录调用仍可用 | Restrictions: 不一刀切要求登录;不改 mock_state 函数签名(已支持 user_id) | Success: 带 token 数据按真实 user_id 分区,不带 token 仍回退 dev-user。标 [-] → log-implementation → [x]_
 
-- [ ] B8. 前端登录/注册屏 + 登录态
+- [x] B8. 前端登录/注册屏 + 登录态
   - File: `apps/mobile/app/auth/*`(新增 login/register 屏), `apps/mobile/services/authApi.ts`(新增), `apps/mobile/store/useAppStore.ts`, `apps/mobile/app/(tabs)/me.tsx`, `apps/mobile/types/domain.ts`
   - 新增 authApi(register/login/me 调后端,需 EXPO_PUBLIC_API_URL)、store 存 authToken/currentUser、登录/注册屏、「我的」页昵称读 currentUser.nickname
   - Purpose: 端到端账号体验

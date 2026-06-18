@@ -36,6 +36,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="explore" />
         <Stack.Screen name="interview" />
+        <Stack.Screen name="auth" />
       </Stack>
     </>
   );

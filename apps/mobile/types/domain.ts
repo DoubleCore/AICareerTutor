@@ -100,3 +100,10 @@ export type ProfileHome = {
   hasExplore: boolean;
   hasInterview: boolean;
 };
+
+/** 登录用户(对齐后端 /auth 的 AuthUser,绝不含密码)。 */
+export type AuthUser = {
+  id: string;
+  email: string;
+  nickname: string;
+};

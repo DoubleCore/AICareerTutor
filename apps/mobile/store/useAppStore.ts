@@ -10,7 +10,8 @@ import {
   InterviewReport,
   InterviewUpload,
   TaskStatus,
-  TrainingTask
+  TrainingTask,
+  AuthUser
 } from "@/types/domain";
 
 type ProfileMode = "both" | "explore" | "interview";
@@ -38,6 +39,9 @@ type AppState = {
   interviewReport: InterviewReport;
   trainingTasks: TrainingTask[];
   profileMode: ProfileMode;
+  // 登录态(Group B):token + 当前用户。null = 未登录(App 仍可本地使用,登录是可选增强)。
+  authToken: string | null;
+  currentUser: AuthUser | null;
   // 探索方向推荐缓存(对齐后端 peek 缓存,避免 result 屏每次挂载都真烧一次 DeepSeek):
   // directions 存在 state.directions;此处存 directions 之外的 conclusion/能力/不推荐。
   // null 表示尚未由 AI 生成过;resetDemo 与画像变更时复位为 null。
@@ -62,6 +66,9 @@ type AppState = {
   setInterviewStatus: (sessionId: string, status: InterviewStatus) => void;
   setInterviewResult: (sessionId: string, report: InterviewReport, analysis: InterviewAnalysis) => void;
   updateInterviewTask: (sessionId: string, taskId: string, status: TaskStatus) => void;
+  // 登录态 setter(供 authApi 编排调用)。
+  setAuth: (token: string, user: AuthUser) => void;
+  clearAuth: () => void;
   resetDemo: () => void;
 };
 
@@ -97,6 +104,8 @@ export const useAppStore = create<AppState>()(
       interviewReport: freshReport(),
       trainingTasks,
       profileMode: "both",
+      authToken: null,
+      currentUser: null,
       exploreExtras: null,
       interviewUploads: {},
       interviewReports: {},
@@ -168,6 +177,8 @@ export const useAppStore = create<AppState>()(
           };
           return { interviewReports: { ...state.interviewReports, [sessionId]: nextReport } };
         }),
+      setAuth: (token, user) => set({ authToken: token, currentUser: user }),
+      clearAuth: () => set({ authToken: null, currentUser: null }),
       resetDemo: () =>
         set({
           profile: defaultProfile,
@@ -200,6 +211,8 @@ export const useAppStore = create<AppState>()(
         interviewReport: state.interviewReport,
         trainingTasks: state.trainingTasks,
         profileMode: state.profileMode,
+        authToken: state.authToken,
+        currentUser: state.currentUser,
         exploreExtras: state.exploreExtras,
         interviewUploads: state.interviewUploads,
         interviewReports: state.interviewReports,

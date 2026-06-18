@@ -57,6 +57,7 @@ type RequestOptions = {
   body?: unknown;
   timeoutMs?: number;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 };
 
 function isErrorEnvelope(value: unknown): value is ApiErrorEnvelope {
@@ -77,7 +78,7 @@ function isErrorEnvelope(value: unknown): value is ApiErrorEnvelope {
  * 成功返回已解析的 JSON(范型 T);失败抛 ApiError。
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, timeoutMs = DEFAULT_TIMEOUT_MS, signal } = options;
+  const { method = "GET", body, timeoutMs = DEFAULT_TIMEOUT_MS, signal, headers } = options;
   const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 
   const controller = new AbortController();
@@ -90,7 +91,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   try {
     response = await fetch(url, {
       method,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(headers ?? {})
+      },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal
     });

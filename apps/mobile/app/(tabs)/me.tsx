@@ -11,13 +11,15 @@ type IconName = React.ComponentProps<typeof MaterialIcons>["name"];
 const focusGraphicImage = require("../../img/12-1.png") as ImageSourcePropType;
 
 export default function Me() {
-  const { avatarUri, setAvatarUri, directions, savedDirectionId, savedTasks, trainingTasks, profileMode } = useAppStore();
+  const { avatarUri, setAvatarUri, directions, savedDirectionId, savedTasks, trainingTasks, profileMode, currentUser, clearAuth } = useAppStore();
   const savedDirection = directions.find((item) => item.id === savedDirectionId) ?? directions[0];
   const hasExplore = profileMode === "both" || profileMode === "explore";
   const hasInterview = profileMode === "both" || profileMode === "interview";
   const exploreDone = savedTasks.filter((task) => task.status === "已完成").length || 1;
   const trainingDone = trainingTasks.filter((task) => task.status === "已完成").length;
   const todoExplore = Math.max(0, 4 - exploreDone);
+  // 登录态:有 currentUser 用真实昵称,否则回退占位名(App 未登录也可用)。
+  const displayName = currentUser?.nickname || currentUser?.email?.split("@")[0] || "Archer";
 
   const pickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -43,7 +45,7 @@ export default function Me() {
           </View>
         </Pressable>
         <View style={styles.profileCopy}>
-          <Text style={styles.name}>Archer</Text>
+          <Text style={styles.name}>{displayName}</Text>
           <View style={styles.badgeRow}>
             {hasExplore ? <MiniBadge icon="explore" text="职业探索中" color={colors.primary} /> : null}
             {hasInterview ? <MiniBadge icon="show-chart" text="面试提升中" color={colors.accent} /> : null}
@@ -144,7 +146,23 @@ export default function Me() {
       <View style={styles.recordCard}>
         <RecordRow icon="manage-search" color={colors.primary} title="查看全部探索记录" />
         <RecordRow icon="question-answer" color={colors.accent} title="查看全部面试复盘" />
-        <RecordRow icon="self-improvement" color={colors.warning} title="查看成长轨迹" last />
+        <RecordRow icon="self-improvement" color={colors.warning} title="查看成长轨迹" />
+        {currentUser ? (
+          <Pressable onPress={clearAuth} style={[styles.recordRow, styles.recordRowLast]}>
+            <View style={[styles.recordIcon, { backgroundColor: "#FDE8E8" }]}>
+              <MaterialIcons name="logout" size={22} color="#E5484D" />
+            </View>
+            <Text style={[styles.recordText, { color: "#E5484D" }]}>退出登录（{currentUser.email}）</Text>
+          </Pressable>
+        ) : (
+          <Pressable onPress={() => router.push("/auth")} style={[styles.recordRow, styles.recordRowLast]}>
+            <View style={[styles.recordIcon, { backgroundColor: `${colors.primary}16` }]}>
+              <MaterialIcons name="login" size={22} color={colors.primary} />
+            </View>
+            <Text style={[styles.recordText, { color: colors.primary }]}>登录 / 注册账号</Text>
+            <MaterialIcons name="chevron-right" size={25} color={colors.gray} />
+          </Pressable>
+        )}
       </View>
     </Screen>
   );
