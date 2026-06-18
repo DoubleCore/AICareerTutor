@@ -10,6 +10,35 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _uuid() -> str:
+    import uuid
+
+    return str(uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# 账号 / 鉴权(Group B):User 表落 SQLite。
+#
+# id 用 uuid 字符串(非自增 int):对齐 Supabase Auth 的 auth.users.id(uuid),
+# 日后迁云时 explore/interview 各表的 user_id 外键语义不变,平滑切换。
+# email 唯一索引;password_hash 存 bcrypt 哈希(绝不明文)。
+# SQLite 锁定不变(见 .claude/CLAUDE.md);Supabase 仍为占位,本表只是「云端可达账号」的本地实现。
+# ---------------------------------------------------------------------------
+
+
+class User(SQLModel, table=True):
+    """注册用户。主键 id(uuid 字符串,对齐 Supabase auth.users.id)。"""
+
+    __tablename__ = "users"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    email: str = Field(index=True, unique=True)
+    password_hash: str
+    nickname: str = ""
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
 class ExploreProfileRecord(SQLModel, table=True):
     """A submitted career-exploration profile (basic info + experience + followups)."""
 

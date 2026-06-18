@@ -10,3 +10,6 @@ sqlmodel>=0.0.16
 # openai:OpenAI 兼容端点,DeepSeek 等走这条(ai_provider=openai + ai_base_url)。
 anthropic>=0.40.0
 openai>=1.40.0
+# 账号/鉴权(Group B):密码哈希 + JWT。直接用 bcrypt(不经 passlib —— passlib 1.7.4 与 bcrypt 4+/5+ 不兼容)。
+bcrypt>=4.0.0
+python-jose[cryptography]>=3.3.0

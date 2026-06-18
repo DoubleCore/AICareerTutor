@@ -47,30 +47,32 @@ def _mock_followup(profile: ExploreProfile, turns: list[FollowupTurn]) -> Follow
     return FollowupResponse(question=bank[idx], done=False)
 
 
-def generate_explore_result(profile: ExploreProfile | None = None) -> ExploreResult:
+def generate_explore_result(profile: ExploreProfile | None = None, user_id: str | None = None) -> ExploreResult:
     """AI 接入:方向推荐生成 —— peek 缓存命中即返回(纯读不烧 LLM),未命中再 mock / real / 回退生成。
 
     - 命中缓存:直接返回(刷新/聚合页不重生成,real 模式下避免重复烧 LLM)。
     - 未命中:mock 或缺 key → build_mock + save;real → 基于画像调真实模型,成功 save,失败回退 mock + save。
     画像来源:路由传入则用之,否则读已落库画像(mock_state.get_explore_profile)。
+    user_id:按用户分区缓存/画像(B7);None 时各 mock_state 调用走其默认 DEV_USER_ID。
     """
-    cached = mock_state.peek_explore_result()
+    uid = user_id or mock_state.DEV_USER_ID
+    cached = mock_state.peek_explore_result(uid)
     if cached is not None:
         return cached
 
     if settings.ai_mode != "real" or not settings.ai_api_key:
         if settings.ai_mode == "real":
             logger.warning("AI_MODE=real 但未配置 AI_API_KEY,回退 mock 方向推荐")
-        return mock_state.save_explore_result(mock_state.build_mock_explore_result())
+        return mock_state.save_explore_result(mock_state.build_mock_explore_result(), uid)
 
-    resolved = profile if profile is not None else mock_state.get_explore_profile()
+    resolved = profile if profile is not None else mock_state.get_explore_profile(uid)
     try:
         result = _real_explore_result(resolved)
         logger.info("真实 LLM 方向推荐生成成功(provider=%s, model=%s)", settings.ai_provider, settings.ai_model)
-        return mock_state.save_explore_result(result)
+        return mock_state.save_explore_result(result, uid)
     except Exception as exc:  # noqa: BLE001 —— 任何失败都回退 mock,演示优先
         logger.warning("真实 LLM 方向推荐生成失败,回退 mock:%s", exc)
-        return mock_state.save_explore_result(mock_state.build_mock_explore_result())
+        return mock_state.save_explore_result(mock_state.build_mock_explore_result(), uid)
 
 
 def run_analysis(session_id: str) -> InterviewReport:

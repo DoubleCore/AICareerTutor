@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     # 真实 ASR(阿里云 Paraformer)接入见 spec mp3-asr-aliyun.md;本轮端点仅桩。
     max_upload_mb: int = 25
 
+    # 账号 / 鉴权(Group B)。jwt_secret 只进 .env,绝不硬编码默认;缺失时 security 层拒绝签发。
+    # 字段对齐 Supabase Auth 以便日后迁移(见 spec)。SQLite 锁定不变。
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 10080  # 7 天
+
     # P1-08:数据库连接串。默认本地 SQLite(apps/api/career_tutor.db,绝对路径)。
     # 可被 .env 的 DATABASE_URL 覆盖(如 smoke 用临时库、将来迁 Postgres)。
     database_url: str = f"sqlite:///{(_APPS_API_DIR / 'career_tutor.db').as_posix()}"

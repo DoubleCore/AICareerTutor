@@ -50,7 +50,7 @@
 
 ## Group B — 用户注册 / 登录(Requirement 2)
 
-- [ ] B1. 新增鉴权依赖与配置
+- [x] B1. 新增鉴权依赖与配置
   - File: `apps/api/requirements.txt`, `apps/api/app/core/config.py`, `apps/api/.env.example`
   - 加 `passlib[bcrypt]`、`python-jose[cryptography]`;config 加 `jwt_secret: str = ""`、`jwt_expire_minutes: int = 10080`;启动期校验 secret 缺失即拒签
   - Purpose: 备好鉴权依赖与密钥配置(密钥只进 .env)
@@ -58,7 +58,7 @@
   - _Requirements: 2.8_
   - _Prompt: Role: Python 安全工程师 | Task: 加 passlib[bcrypt] 与 python-jose(锁版本),config 加 jwt_secret/jwt_expire_minutes,.env.example 补占位;确保缺失 jwt_secret 时不使用硬编码默认(签发处校验或启动期报错) | Restrictions: 绝不在代码里写死 secret;不把 secret 写进任何提交文件 | Success: 依赖装好,缺 secret 时有明确拒绝。标 [-] → log-implementation → [x]_
 
-- [ ] B2. 新增 core/security.py
+- [x] B2. 新增 core/security.py
   - File: `apps/api/app/core/security.py`
   - `hash_password` / `verify_password`(passlib)+ `create_access_token` / `decode_access_token`(jose, sub=user_id, exp)
   - Purpose: 密码哈希 + JWT 编解码(无业务)
@@ -66,7 +66,7 @@
   - _Requirements: 2.1, 2.3, 2.6_
   - _Prompt: Role: Python 安全工程师,熟悉 passlib/jose | Task: 实现 security.py 四个纯函数:密码哈希/校验、JWT 签发/解码(解码失败或过期返回 None);从 config 读 secret 与过期 | Restrictions: 不含任何 DB/业务逻辑;不明文存密码;不吞掉配置缺失 | Success: 哈希往返、token 往返、过期 token 解码返回 None。标 [-] → log-implementation → [x]_
 
-- [ ] B3. 新增 User 模型
+- [x] B3. 新增 User 模型
   - File: `apps/api/app/db/models.py`
   - `User(SQLModel, table=True)` { id(uuid str 主键), email(唯一索引), password_hash, nickname, created_at, updated_at }
   - Purpose: 账号持久化,字段对齐 Supabase Auth
@@ -74,7 +74,7 @@
   - _Requirements: 2.1_
   - _Prompt: Role: Python 数据建模工程师,熟悉 SQLModel | Task: 在 models.py 新增 User 表(id 用 uuid 字符串主键、email 唯一索引、password_hash、nickname、时间戳),照现有表范式;字段对齐 Supabase auth.users 以便日后迁移 | Restrictions: 保持 SQLite 锁定,不接 Supabase;不改现有 6 张表结构 | Success: init_db 幂等建出 users 表。标 [-] → log-implementation → [x]_
 
-- [ ] B4. 新增 auth schemas
+- [x] B4. 新增 auth schemas
   - File: `apps/api/app/schemas/auth.py`
   - RegisterRequest / LoginRequest / AuthUser / AuthResponse(CamelModel)
   - Purpose: 鉴权端点请求/响应契约
@@ -82,7 +82,7 @@
   - _Requirements: 2.1, 2.3_
   - _Prompt: Role: Python 后端工程师 | Task: 新建 schemas/auth.py 定义注册/登录请求与 AuthUser/AuthResponse 响应,CamelModel 序列化 | Restrictions: password 仅入参不回显 | Success: 模型可被路由引用。标 [-] → log-implementation → [x]_
 
-- [ ] B5. 新增 auth_service
+- [x] B5. 新增 auth_service
   - File: `apps/api/app/services/auth_service.py`
   - `register`(唯一性校验+哈希+落库)/ `authenticate`(校验哈希)/ `get_user`
   - Purpose: 账号业务逻辑
@@ -90,7 +90,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
   - _Prompt: Role: Python 后端工程师 | Task: 实现 auth_service:register 校验邮箱唯一(重复抛冲突)、哈希密码、生成 uuid、落库;authenticate 校验密码返回 User 或 None;get_user 按 id 取 | Restrictions: 登录失败不区分「无此用户/密码错」;不在 service 处理 HTTP | Success: 注册/登录/取用户行为正确。标 [-] → log-implementation → [x]_
 
-- [ ] B6. 新增 auth 路由 + get_current_user_id 依赖
+- [x] B6. 新增 auth 路由 + get_current_user_id 依赖
   - File: `apps/api/app/api/routes/auth.py`, `apps/api/app/main.py`
   - POST /auth/register、POST /auth/login、GET /auth/me;FastAPI 依赖 `get_current_user_id`(解 Bearer→user_id,无效抛 401);main.py 挂载 `/auth` 路由
   - Purpose: 暴露鉴权端点
@@ -98,7 +98,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
   - _Prompt: Role: FastAPI 工程师 | Task: 新建 routes/auth.py 三个端点(注册/登录/me)签发并校验 JWT,实现 get_current_user_id 依赖,main.py 挂载 /auth;邮箱冲突→409、鉴权失败→统一 401 | Restrictions: 路由不写业务(转 service);错误不泄露账号存在性 | Success: /docs 可见三端点,注册→登录→/me 全通。标 [-] → log-implementation → [x]_
 
-- [ ] B7. explore/interview 路由可选接入 user_id
+- [x] B7. explore/interview 路由可选接入 user_id
   - File: `apps/api/app/api/routes/explore.py`, `apps/api/app/api/routes/interview.py`
   - 加**可选** `get_current_user_id` 依赖:带 token 用真实 id、不带回退 `DEV_USER_ID`,透传给 `mock_state.*`
   - Purpose: user_id 贯通且兼容未登录旧调用

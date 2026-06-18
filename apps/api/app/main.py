@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import explore, health, interview, profile
+from app.api.routes import auth, explore, health, interview, profile
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
@@ -43,6 +43,7 @@ app.add_middleware(
 register_exception_handlers(app)
 
 app.include_router(health.router)
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(explore.router, prefix="/explore", tags=["explore"])
 app.include_router(interview.router, prefix="/interview", tags=["interview"])
 app.include_router(profile.router, prefix="/profile", tags=["profile"])
