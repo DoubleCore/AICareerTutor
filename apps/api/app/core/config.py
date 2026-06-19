@@ -52,8 +52,15 @@ class Settings(BaseSettings):
     ai_max_tokens: int = 2000
 
     # 文件上传 / MP3 转写:单文件大小上限(MB)。/interview/transcribe 据此拒绝超大文件。
-    # 真实 ASR(阿里云 Paraformer)接入见 spec mp3-asr-aliyun.md;本轮端点仅桩。
+    # 真实 ASR(阿里云 Paraformer)接入见 spec mp3-asr-aliyun.md。
     max_upload_mb: int = 25
+
+    # MP3 语音转写(阿里云百炼 Paraformer)。dashscope_api_key 只进 .env,缺失时 transcribe 端点回退 501 桩。
+    # 用 DashScope 自带临时上传凭证(免自建 OSS):getPolicy → 上传 → oss:// URL → 提交转写 → 轮询。
+    dashscope_api_key: str = ""
+    asr_model: str = "paraformer-v2"
+    asr_poll_interval_s: float = 2.0   # 轮询任务状态的间隔
+    asr_poll_timeout_s: float = 300.0  # 轮询总超时(5 分钟,长录音可调大)
 
     # 账号 / 鉴权(Group B)。jwt_secret 只进 .env,绝不硬编码默认;缺失时 security 层拒绝签发。
     # 字段对齐 Supabase Auth 以便日后迁移(见 spec)。SQLite 锁定不变。

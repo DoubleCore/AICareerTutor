@@ -21,9 +21,9 @@ def upload_interview(upload: InterviewUpload) -> UploadResponse:
 
 @router.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe_interview(file: UploadFile = File(...)) -> TranscribeResponse:
-    # 分治架构:PDF/DOCX 端上解析,MP3 走后端云 ASR。本端点本轮仅桩(返回 501),
-    # 真实方案(阿里云 Paraformer:OSS 中转 + 异步轮询)见 spec mp3-asr-aliyun.md。
-    # 先做大小校验(防超大文件拖垮服务),再调 file_service.transcribe_audio 桩。
+    # 分治架构:PDF/DOCX 端上解析,MP3 走后端云 ASR(阿里云 Paraformer + DashScope 临时凭证)。
+    # 配了 dashscope_api_key 走真实转写;未配回退 501 桩。见 spec mp3-asr-aliyun.md。
+    # 先做大小校验(防超大文件拖垮服务),再调 file_service.transcribe_audio。
     content = await file.read()
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if len(content) > max_bytes:
@@ -35,12 +35,20 @@ async def transcribe_interview(file: UploadFile = File(...)) -> TranscribeRespon
     try:
         text = file_service.transcribe_audio(content, file.filename or "audio.mp3")
     except NotImplementedError as exc:
-        # 501:接口已就绪、实现待接入。给前端明确「暂未支持」反馈,而非静默失败。
+        # 501:未配 ASR key,接口已就绪、实现待接入。给前端明确「暂未支持」反馈。
         raise AppError(
             status_code=501,
             code="asr_not_implemented",
             message="语音转写功能即将上线,当前可先上传文本或直接粘贴。",
         ) from exc
+    except Exception as exc:  # noqa: BLE001 —— asr_service.AsrError 等转写失败,统一 502 + 回退提示
+        raise AppError(
+            status_code=502,
+            code="asr_failed",
+            message="语音转写失败,请重试或直接粘贴文本。",
+        ) from exc
+    if not text.strip():
+        raise AppError(status_code=422, code="asr_empty", message="未识别到有效语音,请换文件或直接粘贴。")
     return TranscribeResponse(text=text)
 
 

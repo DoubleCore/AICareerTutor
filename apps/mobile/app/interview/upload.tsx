@@ -223,8 +223,11 @@ function useFilePicker({
             setFileError("语音转写功能即将上线,当前可先粘贴面试文本。");
           } else if (code === "file_too_large") {
             setFileError("音频文件过大,请压缩或截取关键片段。");
+          } else if (code === "asr_empty") {
+            setFileError("未识别到有效语音,请换文件或直接粘贴。");
           } else {
-            setFileError("语音转写服务暂不可用,请直接粘贴文本。");
+            // asr_failed / 网络错误等:统一提示并回退手动粘贴。
+            setFileError("语音转写暂不可用,请直接粘贴文本。");
           }
         }
         return;

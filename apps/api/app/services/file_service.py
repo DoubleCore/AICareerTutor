@@ -7,13 +7,17 @@ def store_upload_metadata(upload: InterviewUpload) -> InterviewUpload:
 
 
 def transcribe_audio(content: bytes, filename: str) -> str:
-    """MP3 语音转写 —— 本轮仅留接口桩。
+    """MP3 语音转写 —— 配了 DashScope key 走真实链路,否则回退 501 桩。
 
-    分治架构(见 spec):PDF/DOCX 端上解析,MP3 走后端云 ASR。真实方案选定
-    阿里云百炼 Paraformer(只收公网 URL → 需 OSS 中转 → 异步提交/轮询/下载结果),
-    完整接法见 .spec-workflow/specs/backend-feature-optimization/mp3-asr-aliyun.md。
+    分治架构(见 spec):PDF/DOCX 端上解析,MP3 走后端云 ASR。真实实现见 asr_service
+    (阿里云百炼 Paraformer + DashScope 临时上传凭证,免自建 OSS),完整接法见
+    .spec-workflow/specs/backend-feature-optimization/mp3-asr-aliyun.md。
 
-    本轮不接 OSS / DashScope,直接抛 NotImplementedError(路由映射为 501 + 明确中文提示),
-    保证「先流出接口、链路打通」:上传 mp3 能拿到确定的「暂未支持」反馈,而非静默失败。
+    - 已配 dashscope_api_key:调 asr_service.transcribe 返回纯文本;失败抛 AsrError(路由→5xx)。
+    - 未配 key:抛 NotImplementedError(路由→501 + 明确中文提示),保证「先流出接口、链路打通」。
     """
-    raise NotImplementedError("mp3 语音转写暂未支持")
+    from app.services import asr_service
+
+    if not asr_service.is_configured():
+        raise NotImplementedError("mp3 语音转写暂未支持")
+    return asr_service.transcribe(content, filename)
