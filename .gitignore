@@ -32,3 +32,9 @@ apps/mobile/ios/
 
 # Playwright MCP: local browser test artifacts (screenshots, console/network logs)
 .playwright-mcp/
+
+# 验证用临时产物
+_*.png
+_*.mp3
+_*.wav
+_test_audio.mp3
