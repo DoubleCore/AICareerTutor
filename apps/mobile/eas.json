@@ -12,7 +12,8 @@
       },
       "env": {
         "EXPO_PUBLIC_AI_BASE_URL": "https://api.deepseek.com",
-        "EXPO_PUBLIC_AI_MODEL": "deepseek-chat"
+        "EXPO_PUBLIC_AI_MODEL": "deepseek-chat",
+        "EXPO_PUBLIC_API_URL": "http://10.0.2.2:8000"
       }
     },
     "production": {
