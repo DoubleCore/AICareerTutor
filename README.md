@@ -1,8 +1,35 @@
-# AI职场导师 P0
+<div align="center">
 
-P0 runnable skeleton for the AI career tutor mobile app and FastAPI mock backend.
+# AI Career Tutor — Product Engineering Fork
 
-## Mobile
+**Career Guidance · Mobile Product · FastAPI**
+
+![Fork](https://img.shields.io/badge/Repository-Fork-6E7781?style=flat-square&logo=github)
+![Expo](https://img.shields.io/badge/Mobile-Expo-000020?style=flat-square&logo=expo&logoColor=white)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+
+A fork-based development workspace for exploring an AI-native career guidance product.
+
+</div>
+
+## Repository Context
+
+This repository is a **fork of [`y-ii-ii/AICareerTutor`](https://github.com/y-ii-ii/AICareerTutor)**. The upstream project and original product concept belong to its original author and contributors.
+
+I use this fork as a product-engineering workspace for studying how to turn an AI product idea into a runnable mobile + backend loop.
+
+## Current P0 Scope
+
+The current repository contains a runnable P0 skeleton with:
+
+- an Expo-based mobile application;
+- a FastAPI backend;
+- development/mock data;
+- a fixed development user for early iteration;
+- OpenAPI / Swagger documentation;
+- a unified error response format.
+
+## Run the Mobile App
 
 ```powershell
 cd apps/mobile
@@ -10,45 +37,39 @@ npm install
 npm run start
 ```
 
-Use Expo Go or press `w` for the web preview.
+Use Expo Go or the web preview during development.
 
-## API
+## Run the API
 
 ```powershell
 cd apps/api
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env   # adjust values as needed
+copy .env.example .env
 uvicorn app.main:app --reload
 ```
 
-The backend uses a fixed development user and in-memory/template data for P0.
+Useful local endpoints:
 
-### Configuration
-
-Configuration is read from environment variables (or a `.env` file in `apps/api`).
-See `.env.example` for all keys. Common ones:
-
-- `ENVIRONMENT` — `development` / `staging` / `production`
-- `LOG_LEVEL` — `DEBUG` / `INFO` / `WARNING` / `ERROR`
-- `CORS_ORIGINS` — `*` (default) or a comma-separated list of allowed origins
-
-### Endpoints
-
-- Swagger UI: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
-
-### Connecting from the frontend
-
-- Expo Web (local): `http://localhost:8000`
-- Android emulator: `http://10.0.2.2:8000`
-- Physical device: `http://<your-LAN-IP>:8000`
-
-### Error format
-
-All handled errors return a unified envelope:
-
-```json
-{ "error": { "code": "not_found", "message": "..." } }
+```text
+Swagger UI   http://localhost:8000/docs
+Health       http://localhost:8000/health
 ```
+
+## Product Questions Being Explored
+
+- How should an AI career assistant turn vague career uncertainty into structured actions?
+- How should interview analysis, planning, and follow-up live in one product flow?
+- What is the minimum backend contract required to validate the mobile experience?
+- Which interactions should be deterministic product logic and which should be delegated to an LLM?
+
+## Status
+
+`Fork-based Development` · `P0 Prototype` · `Mobile + API`
+
+This repository is part of my AI product training portfolio, but it is **not presented as an original codebase**.
+
+## Upstream
+
+Canonical source: [`y-ii-ii/AICareerTutor`](https://github.com/y-ii-ii/AICareerTutor)
