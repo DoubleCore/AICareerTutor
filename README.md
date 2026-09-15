@@ -1,33 +1,74 @@
 <div align="center">
 
-# AI Career Tutor — Product Engineering Fork
+# AI Career Tutor
 
-**Career Guidance · Mobile Product · FastAPI**
+### Zhaopin Hackathon Project
 
-![Fork](https://img.shields.io/badge/Repository-Fork-6E7781?style=flat-square&logo=github)
+**AI Career Guidance · Interview Analysis · Action Planning**
+
+![Hackathon](https://img.shields.io/badge/Project-Zhaopin%20Hackathon-2563EB?style=flat-square)
 ![Expo](https://img.shields.io/badge/Mobile-Expo-000020?style=flat-square&logo=expo&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
 
-A fork-based development workspace for exploring an AI-native career guidance product.
+An AI-powered career assistant prototype developed in the context of the **Zhaopin Hackathon**, exploring how AI can turn career uncertainty into structured analysis and actionable next steps.
 
 </div>
 
-## Repository Context
+## Hackathon Context
 
-This repository is a **fork of [`y-ii-ii/AICareerTutor`](https://github.com/y-ii-ii/AICareerTutor)**. The upstream project and original product concept belong to its original author and contributors.
+This project was used as a hackathon product workspace focused on the career and recruitment domain.
 
-I use this fork as a product-engineering workspace for studying how to turn an AI product idea into a runnable mobile + backend loop.
+The core challenge was to explore how an AI-native product could help users move from vague career questions to concrete decisions and actions.
+
+### Focus Areas
+
+- career direction analysis;
+- interview analysis and feedback;
+- structured action planning;
+- mobile-first AI product experience;
+- rapid product iteration under hackathon constraints.
+
+## Product Loop
+
+```text
+Career Question
+      |
+      v
+User Context / Input
+      |
+      v
+AI Analysis
+      |
+      +----> Interview Feedback
+      |
+      +----> Career Suggestions
+      |
+      v
+Action Plan
+      |
+      v
+Follow-up / Iteration
+```
 
 ## Current P0 Scope
 
-The current repository contains a runnable P0 skeleton with:
+The repository contains a runnable P0 skeleton with:
 
 - an Expo-based mobile application;
 - a FastAPI backend;
-- development/mock data;
+- development and mock data;
 - a fixed development user for early iteration;
 - OpenAPI / Swagger documentation;
 - a unified error response format.
+
+## Technology Stack
+
+| Layer | Stack |
+| --- | --- |
+| Mobile | Expo, TypeScript |
+| API | FastAPI, Python |
+| Interface | REST / OpenAPI |
+| Product Focus | AI career guidance, interview analysis, action planning |
 
 ## Run the Mobile App
 
@@ -57,18 +98,25 @@ Swagger UI   http://localhost:8000/docs
 Health       http://localhost:8000/health
 ```
 
-## Product Questions Being Explored
+## What This Project Trains
 
-- How should an AI career assistant turn vague career uncertainty into structured actions?
-- How should interview analysis, planning, and follow-up live in one product flow?
-- What is the minimum backend contract required to validate the mobile experience?
-- Which interactions should be deterministic product logic and which should be delegated to an LLM?
+This project is part of my **Professional AI Player** training portfolio and focuses on:
+
+- understanding an unfamiliar business domain quickly;
+- converting a hackathon brief into a product hypothesis;
+- designing an AI-native user flow;
+- connecting mobile interfaces with backend contracts;
+- building and validating a runnable prototype under time constraints.
+
+## Repository Context
+
+This repository is a **fork of [`y-ii-ii/AICareerTutor`](https://github.com/y-ii-ii/AICareerTutor)**. The upstream project and original codebase belong to its original author and contributors.
+
+This fork is used as a hackathon and product-engineering workspace. The competition context and my local development work should not be interpreted as authorship of the upstream codebase.
 
 ## Status
 
-`Fork-based Development` · `P0 Prototype` · `Mobile + API`
-
-This repository is part of my AI product training portfolio, but it is **not presented as an original codebase**.
+`Zhaopin Hackathon` · `P0 Prototype` · `Mobile + API` · `AI Product Engineering`
 
 ## Upstream
 
